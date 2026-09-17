@@ -4,6 +4,7 @@ import (
 	"lifx-emulator/internal/emulator"
 
 	"github.com/alessio-palumbo/lifxlan-go/pkg/device"
+	"github.com/alessio-palumbo/lifxprotocol-go/gen/protocol/enums"
 	"github.com/alessio-palumbo/lifxprotocol-go/gen/protocol/packets"
 )
 
@@ -45,6 +46,16 @@ func (r *Router) respond(v *emulator.VirtualDevice, p packets.Payload, applied b
 			}
 		}
 		return one(light(v))
+	case *packets.MultiZoneGetEffect:
+		if v.Device.LightType != device.LightTypeMultiZone {
+			return nil
+		}
+		return one(&packets.MultiZoneStateEffect{Settings: packets.MultiZoneEffectSettings{Type: enums.MultiZoneEffectTypeMULTIZONEEFFECTTYPEOFF}})
+	case *packets.TileGetEffect:
+		if v.Device.LightType != device.LightTypeMatrix {
+			return nil
+		}
+		return one(&packets.TileStateEffect{Settings: packets.TileEffectSettings{Type: enums.TileEffectTypeTILEEFFECTTYPEOFF}})
 	case *packets.MultiZoneExtendedGetColorZones, *packets.MultiZoneExtendedSetColorZones:
 		if v.Device.LightType != device.LightTypeMultiZone {
 			return nil

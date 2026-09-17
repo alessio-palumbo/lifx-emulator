@@ -11,7 +11,21 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
+// TransportStats counts datagrams before routing, including rejected packets.
+type TransportStats struct {
+	Received   uint64
+	Decoded    uint64
+	Filtered   uint64
+	Invalid    uint64
+	Replies    uint64
+	SendErrors uint64
+	LastPeer   string
+	LastError  string
+}
+
 type Server struct {
+	statsMu        sync.Mutex
+	stats          TransportStats
 	conn           *net.UDPConn
 	packet         *ipv4.PacketConn
 	selected       net.IP
@@ -69,6 +83,16 @@ func (s *Server) Address() string {
 	}
 	return a.String()
 }
+func (s *Server) Stats() TransportStats {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+	return s.stats
+}
+func (s *Server) record(update func(*TransportStats)) {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+	update(&s.stats)
+}
 func (s *Server) Close() error { var err error; s.once.Do(func() { err = s.conn.Close() }); return err }
 func (s *Server) Serve(ctx context.Context) error {
 	go func() {
@@ -88,26 +112,40 @@ func (s *Server) Serve(ctx context.Context) error {
 			}
 			return err
 		}
+		s.record(func(v *TransportStats) { v.Received++; v.LastPeer = peer.String() })
 		if s.interfaceIndex != 0 && (metadata == nil || metadata.IfIndex != s.interfaceIndex) {
+			s.record(func(v *TransportStats) { v.Filtered++ })
 			continue
 		}
 		// Validate framing before handing library decoding a datagram.
 		if n < 36 || int(buf[0])|int(buf[1])<<8 != n || (uint16(buf[2])|uint16(buf[3])<<8)&0xfff != 1024 {
+			s.record(func(v *TransportStats) { v.Invalid++; v.LastError = "Invalid LIFX framing" })
 			continue
 		}
 		m := &protocol.Message{}
 		if err = m.UnmarshalBinary(buf[:n]); err != nil {
+			s.record(func(v *TransportStats) { v.Invalid++; v.LastError = err.Error() })
 			continue
 		}
-		for _, out := range s.Router.Handle(m) {
+		s.record(func(v *TransportStats) { v.Decoded++ })
+		for _, out := range s.Router.HandleFrom(m, peer.String()) {
 			b, err := out.MarshalBinary()
 			if err == nil {
 				var reply *ipv4.ControlMessage
 				if s.interfaceIndex != 0 {
 					reply = &ipv4.ControlMessage{Src: s.selected, IfIndex: s.interfaceIndex}
 				}
-				_, _ = s.packet.WriteTo(b, reply, peer)
+				_, err = s.packet.WriteTo(b, reply, peer)
 			}
+			s.Router.RecordSend(out, peer.String(), err)
+			s.record(func(v *TransportStats) {
+				if err != nil {
+					v.SendErrors++
+					v.LastError = err.Error()
+				} else {
+					v.Replies++
+				}
+			})
 		}
 	}
 }

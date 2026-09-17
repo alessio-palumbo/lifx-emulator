@@ -3,6 +3,7 @@ package lan
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -10,13 +11,32 @@ import (
 
 	"github.com/alessio-palumbo/lifxlan-go/pkg/device"
 	"github.com/alessio-palumbo/lifxlan-go/pkg/protocol"
+	"github.com/alessio-palumbo/lifxprotocol-go/gen/protocol/packets"
 )
 
+// Packet names come from generated library payload types, keeping the UI free
+// of a duplicated protocol dictionary or a dependency on numeric type values.
+var payloadNames = func() map[uint16]string {
+	names := make(map[uint16]string, len(packets.Payloads))
+	for id, newPayload := range packets.Payloads {
+		names[id] = reflect.TypeOf(newPayload()).Elem().Name()
+	}
+	return names
+}()
+
 type Activity struct {
-	At      time.Time
-	Target  string
-	Type    uint16
-	Applied bool
+	Direction string
+	Peer      string
+	Source    uint32
+	Sequence  uint8
+	Replies   int
+	Error     string
+	At        time.Time
+	Target    string
+	Type      uint16
+	TypeName  string
+	Label     string
+	Applied   bool
 }
 type Snapshot struct {
 	Serial  string
@@ -77,14 +97,20 @@ func (r *Router) Snapshots() ([]Snapshot, uint64, bool, []Activity) {
 	return out, r.Revision, active, append([]Activity(nil), r.Recent...)
 }
 func (r *Router) Handle(m *protocol.Message) []*protocol.Message {
+	return r.HandleFrom(m, "")
+}
+
+func (r *Router) HandleFrom(m *protocol.Message, peer string) []*protocol.Message {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.Clock()
 	var responses []*protocol.Message
+	matched := false
 	for _, v := range r.Devices {
 		if !v.Enabled || (m.Target() != protocol.TargetBroadcast && m.Target() != [8]byte(v.Device.Serial)) {
 			continue
 		}
+		matched = true
 		v.State.Evaluate(now)
 		applied := v.Apply(m.Payload, now)
 		if applied {
@@ -98,13 +124,39 @@ func (r *Router) Handle(m *protocol.Message) []*protocol.Message {
 			out.SetSequence(m.Sequence())
 			responses = append(responses, out)
 		}
-		r.Recent = append(r.Recent, Activity{now, v.Device.Serial.String(), m.Type(), applied})
-		if len(r.Recent) > 80 {
-			r.Recent = r.Recent[len(r.Recent)-80:]
-		}
+		r.activity(Activity{Direction: "RX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), Replies: len(payloads), At: now, Target: v.Device.Serial.String(), Type: m.Type(), TypeName: payloadNames[m.Type()], Label: v.Device.Label, Applied: applied})
+	}
+	if !matched {
+		r.activity(Activity{Direction: "RX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), At: now, Target: device.Serial(m.Target()).String(), Type: m.Type(), TypeName: payloadNames[m.Type()], Error: "No enabled device matches target"})
 	}
 	return responses
 }
+
+// activity is called while r.mu is held; the UI reads it at its render cadence.
+func (r *Router) activity(a Activity) {
+	r.Recent = append(r.Recent, a)
+	if len(r.Recent) > 80 {
+		r.Recent = r.Recent[len(r.Recent)-80:]
+	}
+}
+
+// RecordSend records a completed write, not a claim that the peer received it.
+func (r *Router) RecordSend(m *protocol.Message, peer string, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a := Activity{Direction: "TX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), At: r.Clock(), Target: device.Serial(m.Target()).String(), Type: m.Type(), TypeName: payloadNames[m.Type()]}
+	for _, v := range r.Devices {
+		if v.Device.Serial == device.Serial(m.Target()) {
+			a.Label = v.Device.Label
+			break
+		}
+	}
+	if err != nil {
+		a.Error = err.Error()
+	}
+	r.activity(a)
+}
+
 func (r *Router) Update(serial, replacement, labelText string, enabled bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

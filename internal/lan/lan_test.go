@@ -2,6 +2,8 @@ package lan
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -176,6 +178,25 @@ func TestUDPDiscoveryIdentityAndRoundTrips(t *testing.T) {
 			t.Fatal("matrix partial update")
 		}
 	}
+	// Match a client painting each Tile independently and verify every emitter.
+	expected := make([]packets.LightHsbk, 5)
+	for i := range 5 {
+		expected[i] = packets.LightHsbk{Hue: uint16(10000 * i), Saturation: 60000, Brightness: 40000, Kelvin: 3500}
+		p := &packets.TileSet64{TileIndex: uint8(i), Length: 1, Rect: packets.TileBufferRect{Width: 8}}
+		for j := range p.Colors {
+			p.Colors[j] = expected[i]
+		}
+		exchange(p, matrix, 1)
+	}
+	allTiles := exchange(&packets.TileGet64{Length: 5, Rect: packets.TileBufferRect{Width: 8}}, matrix, 5)
+	for _, m := range allTiles {
+		state := m.Payload.(*packets.TileState64)
+		for _, c := range state.Colors {
+			if c != expected[state.TileIndex] {
+				t.Fatalf("Tile %d returned %+v, expected %+v", state.TileIndex, c, expected[state.TileIndex])
+			}
+		}
+	}
 	single := exchange(&packets.LightGet{}, [8]byte(r.Devices[0].Device.Serial), 1)[0].Payload.(*packets.LightState)
 	if single.Color != color {
 		t.Fatal("other target mutated")
@@ -262,5 +283,213 @@ func TestLifxlanControllerClassifiesAllDevices(t *testing.T) {
 				return
 			}
 		}
+	}
+}
+
+func TestActivityUsesGeneratedPayloadNames(t *testing.T) {
+	r := testRouter(t)
+	target := [8]byte(r.Devices[1].Device.Serial)
+	r.Handle(message(&packets.MultiZoneExtendedGetColorZones{}, target))
+	_, _, _, recent := r.Snapshots()
+	a := recent[len(recent)-1]
+	if a.Label != r.Devices[1].Device.Label || a.TypeName != "MultiZoneExtendedGetColorZones" || a.Type != uint16(packets.PayloadTypeMultiZoneExtendedGetColorZones) {
+		t.Fatalf("unexpected activity: %+v", a)
+	}
+	r.Handle(message(&packets.LightSetColor{}, target))
+	_, _, _, recent = r.Snapshots()
+	a = recent[len(recent)-1]
+	if a.TypeName != "LightSetColor" || !a.Applied {
+		t.Fatalf("unexpected Set activity: %+v", a)
+	}
+}
+
+// The official app sets reserved LIFXV2 bytes and a reserved flag. Neither
+// changes the public GetService request or the UDP service value.
+func TestCapturedAppDiscoveryAndTransportCounters(t *testing.T) {
+	s, err := Listen("127.0.0.1:0", testRouter(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx) }()
+	defer func() {
+		cancel()
+		s.Close()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	addr, _ := net.ResolveUDPAddr("udp4", s.Address())
+	c, err := net.DialUDP("udp4", nil, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	request, err := hex.DecodeString("240000341100000000000000000000004c49465856320400000000000000000002000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Write([]byte{1, 2, 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Write(request); err != nil {
+		t.Fatal(err)
+	}
+	c.SetReadDeadline(time.Now().Add(time.Second))
+	targets := map[[8]byte]bool{}
+	for i := 0; i < 3; i++ {
+		b := make([]byte, 4096)
+		n, err := c.Read(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := &protocol.Message{}
+		if err := m.UnmarshalBinary(b[:n]); err != nil {
+			t.Fatal(err)
+		}
+		service, ok := m.Payload.(*packets.DeviceStateService)
+		if !ok || service.Service != 1 || m.Source() != 17 {
+			t.Fatalf("unexpected response: %#v", m)
+		}
+		targets[m.Target()] = true
+	}
+	if len(targets) != 3 {
+		t.Fatal("discovery targets not unique")
+	}
+	// A response may reach the reader just before the sender updates its counter.
+	deadline := time.Now().Add(time.Second)
+	for s.Stats().Replies != 3 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	stats := s.Stats()
+	if stats.Received != 2 || stats.Decoded != 1 || stats.Invalid != 1 || stats.Replies != 3 || stats.SendErrors != 0 || stats.LastPeer == "" {
+		t.Fatalf("stats: %+v", stats)
+	}
+}
+
+func TestUDPPublicAppQueriesReturnCorrelatedStates(t *testing.T) {
+	r := testRouter(t)
+	s, err := Listen("127.0.0.1:0", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx) }()
+	defer func() {
+		cancel()
+		s.Close()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	addr, _ := net.ResolveUDPAddr("udp4", s.Address())
+	c, err := net.DialUDP("udp4", nil, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	type queryCase struct {
+		name           string
+		index          int
+		request, state packets.Payload
+	}
+	cases := []queryCase{}
+	for index := range r.Devices {
+		cases = append(cases,
+			queryCase{"group", index, &packets.DeviceGetGroup{}, &packets.DeviceStateGroup{}},
+			queryCase{"location", index, &packets.DeviceGetLocation{}, &packets.DeviceStateLocation{}},
+		)
+	}
+	cases = append(cases,
+		queryCase{"strip effect", 1, &packets.MultiZoneGetEffect{}, &packets.MultiZoneStateEffect{}},
+		queryCase{"matrix effect", 2, &packets.TileGetEffect{}, &packets.TileStateEffect{}},
+	)
+	for index, tc := range cases {
+		t.Run(tc.name+"/"+r.Devices[tc.index].Device.Serial.String(), func(t *testing.T) {
+			target := [8]byte(r.Devices[tc.index].Device.Serial)
+			m := message(tc.request, target)
+			m.SetSource(17)
+			m.SetSequence(uint8(index))
+			b, err := m.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			copy(b[16:22], "LIFXV2")
+			b[22] |= 4
+			if _, err := c.Write(b); err != nil {
+				t.Fatal(err)
+			}
+			c.SetReadDeadline(time.Now().Add(time.Second))
+			reply := make([]byte, 4096)
+			n, peer, err := c.ReadFromUDP(reply)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := &protocol.Message{}
+			if err := state.UnmarshalBinary(reply[:n]); err != nil {
+				t.Fatal(err)
+			}
+			if peer.Port != addr.Port || !peer.IP.Equal(addr.IP) || state.Type() != tc.state.PayloadType() || state.Target() != target || state.Source() != 17 || state.Sequence() != uint8(index) {
+				t.Fatalf("reply correlation: peer=%s state=%s", peer, state)
+			}
+			switch p := state.Payload.(type) {
+			case *packets.DeviceStateGroup:
+				if p.Group == [16]byte{} || p.Label == [32]byte{} {
+					t.Fatal("empty group metadata")
+				}
+			case *packets.DeviceStateLocation:
+				if p.Location == [16]byte{} || p.Label == [32]byte{} {
+					t.Fatal("empty location metadata")
+				}
+			case *packets.MultiZoneStateEffect:
+				if p.Settings.Type != 0 {
+					t.Fatal("effect is not OFF")
+				}
+			case *packets.TileStateEffect:
+				if p.Settings.Type != 0 {
+					t.Fatal("effect is not OFF")
+				}
+			}
+		})
+	}
+	deadline := time.Now().Add(time.Second)
+	for s.Stats().Replies != uint64(len(cases)) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	_, _, _, recent := r.Snapshots()
+	if len(recent) != 2*len(cases) {
+		t.Fatalf("missing RX/TX entries: %+v", recent)
+	}
+	for i := 0; i < len(recent); i += 2 {
+		rx, tx := recent[i], recent[i+1]
+		if rx.Direction != "RX" || rx.Replies != 1 || tx.Direction != "TX" || tx.Error != "" || rx.Peer != c.LocalAddr().String() || rx.Peer != tx.Peer || rx.Source != tx.Source || rx.Sequence != tx.Sequence || rx.Target != tx.Target {
+			t.Fatalf("exchange mismatch: RX=%+v TX=%+v", rx, tx)
+		}
+	}
+}
+
+func TestResponseDiagnosticsForNoReplyAndSendFailure(t *testing.T) {
+	r := testRouter(t)
+	m := message(&packets.TileGetEffect{}, [8]byte(r.Devices[0].Device.Serial))
+	if got := r.HandleFrom(m, "192.0.2.1:1234"); len(got) != 0 {
+		t.Fatal("bulb answered matrix effect query")
+	}
+	rx := r.Recent[len(r.Recent)-1]
+	if rx.Direction != "RX" || rx.Replies != 0 || rx.Peer != "192.0.2.1:1234" {
+		t.Fatalf("no-reply diagnostic: %+v", rx)
+	}
+	unknown := message(&packets.DeviceGetGroup{}, [8]byte{2, 3, 4, 5, 6, 7})
+	r.HandleFrom(unknown, "192.0.2.1:1234")
+	if r.Recent[len(r.Recent)-1].Error == "" {
+		t.Fatal("unknown target not reported")
+	}
+	reply := message(&packets.DeviceStateGroup{}, [8]byte(r.Devices[0].Device.Serial))
+	r.RecordSend(reply, "192.0.2.1:1234", errors.New("write denied"))
+	tx := r.Recent[len(r.Recent)-1]
+	if tx.Direction != "TX" || tx.Error != "write denied" || tx.Source != reply.Source() || tx.Sequence != reply.Sequence() || tx.Label != r.Devices[0].Device.Label {
+		t.Fatalf("send-failure diagnostic: %+v", tx)
 	}
 }
