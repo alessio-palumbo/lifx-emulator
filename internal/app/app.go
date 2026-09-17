@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	goruntime "runtime"
 	"sort"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ type Product struct {
 	Chain     bool
 }
 type View struct {
+	Platform   string
 	Location   config.Location
 	Group      config.Group
 	Transport  lan.TransportStats
@@ -135,7 +137,7 @@ func (a *App) frames(ctx context.Context) {
 			a.mu.Unlock()
 			if revision != previous || active || wasActive || packet != lastPacket || transport != lastTransport {
 				a.mu.Lock()
-				v := View{Location: a.file.Location, Group: a.file.Group, Transport: transport, Devices: devices, Recent: recent, Listening: a.address, Error: a.failure}
+				v := View{Platform: goruntime.GOOS, Location: a.file.Location, Group: a.file.Group, Transport: transport, Devices: devices, Recent: recent, Listening: a.address, Error: a.failure}
 				a.mu.Unlock()
 				runtime.EventsEmit(a.ctx, "frame", v)
 				previous = revision
@@ -175,7 +177,7 @@ func (a *App) Snapshot() View {
 			}
 		}
 	}
-	return View{Location: a.file.Location, Group: a.file.Group, Transport: a.transportStats(), Devices: d, Recent: r, Listening: a.address, Error: a.failure, Interfaces: interfaces}
+	return View{Platform: goruntime.GOOS, Location: a.file.Location, Group: a.file.Group, Transport: a.transportStats(), Devices: d, Recent: r, Listening: a.address, Error: a.failure, Interfaces: interfaces}
 }
 func (a *App) Products() []Product {
 	out := []Product{}
@@ -322,6 +324,9 @@ func (a *App) ListenOn(ip string) error {
 // show its local-network permission prompt. Connecting sends no datagram;
 // success is not a general permission-status check.
 func (a *App) RequestLANAccess() error {
+	if goruntime.GOOS != "darwin" {
+		return nil
+	}
 	a.mu.Lock()
 	listen := a.file.Listen
 	a.mu.Unlock()
