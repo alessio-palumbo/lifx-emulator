@@ -1,6 +1,10 @@
 frontend/node_modules/
 frontend/dist/
 build/bin/
+# Wails generates these Windows resources from build/appicon.png.
+build/windows/icon.ico
+build/windows/info.json
+build/windows/wails.exe.manifest
 .DS_Store
 
 # Keep local and CI-supplied response fixtures out of source control.

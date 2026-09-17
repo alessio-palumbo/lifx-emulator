@@ -1,10 +1,11 @@
 import './style.css';
+import appIcon from '../../build/appicon.png';
 import {cssColor} from './color.js';
 import {enhanceSelects} from './select.js';
 const api = () => window.go.app.App;
 let view = {Devices:[],Recent:[],Interfaces:[]}, products = [], lastActivityKey = '';
 const root = document.querySelector('#app');
-root.innerHTML = `<header><div class="brand"><span class="mark">✳</span><div><h1>LIFX Emulator</h1><p>Virtual lights. Real LAN traffic.</p></div></div><span class="badge">LOCAL LAB</span></header>
+root.innerHTML = `<header><div class="brand"><img class="mark" src="${appIcon}" alt=""><div><h1>LIFX Emulator</h1><p>Virtual lights. Real LAN traffic.</p></div></div><span class="badge">LOCAL LAB</span></header>
 <section class="network"><span id="status"></span><label>Listen on <select id="interface"></select></label><button id="rebind">Apply interface</button><button id="lan-access">Request LAN access</button></section>
 <div id="error" role="alert"></div><p id="network-note" role="status"></p><main><section><div class="section-title"><div><h2>Your virtual lights</h2><p>State and animations are evaluated in Go.</p></div><span id="count"></span></div><div id="devices"></div></section><aside><section class="panel"><h2>Add a light</h2><form id="add"><label>Product<select id="product"></select></label><label>Label<input id="label" value="Virtual light" maxlength="32" required></label><div id="topology"></div><button class="primary">Create virtual light</button></form><p class="hint">Unique locally administered targets are generated automatically. Matrix dimensions describe physical packet layout; previews use the library surface mapping.</p></section><section class="panel activity"><h2>Recent traffic <button id="traffic-mode" type="button" class="traffic-mode" aria-pressed="false" title="Pause live traffic to inspect messages">Pause</button></h2><p class="hint" id="transport"></p><div id="activity" tabindex="0" aria-label="Recent LAN traffic"></div></section></aside></main>`;
 const el=id=>document.getElementById(id);
