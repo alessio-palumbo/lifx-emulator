@@ -18,6 +18,10 @@ export function Remove(arg1) {
   return window['go']['app']['App']['Remove'](arg1);
 }
 
+export function RequestLANAccess() {
+  return window['go']['app']['App']['RequestLANAccess']();
+}
+
 export function Snapshot() {
   return window['go']['app']['App']['Snapshot']();
 }

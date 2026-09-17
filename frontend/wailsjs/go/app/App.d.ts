@@ -11,6 +11,8 @@ export function Products():Promise<Array<app.Product>>;
 
 export function Remove(arg1:string):Promise<void>;
 
+export function RequestLANAccess():Promise<void>;
+
 export function Snapshot():Promise<app.View>;
 
 export function Update(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;

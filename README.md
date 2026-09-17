@@ -36,6 +36,8 @@ Run without a desktop:
 
 ```sh
 go run ./cmd/headless
+# Log socket delivery counters for discovery troubleshooting (quit desktop first):
+go run ./cmd/headless -listen 0.0.0.0:56700 -traffic
 # Separate temporary configuration and an alternate port:
 go run ./cmd/headless -config /tmp/virtual-lights.json -listen 127.0.0.1:56701
 ```
@@ -68,9 +70,11 @@ The file root has `Listen` and `Devices` fields. Restart after manually changing
 
 Default UDP listen address is `0.0.0.0:56700`. Discovery returns a service response for each enabled virtual device, with its own target and the request's source/sequence metadata. Direct targets affect only that light; an empty target broadcasts to all applicable enabled lights. All lights share the host address and port.
 
+On macOS 15 or later, enable lifx-emulator in System Settings → Privacy & Security → Local Network. Click **Request LAN access** in the desktop app to trigger a local-network operation while the app is foregrounded, and allow the macOS prompt. The request connects a UDP socket without sending a datagram; it cannot conclusively report permission status. If macOS previously denied access, enable the app in System Settings and retry discovery. The app includes a local-network usage description. Incoming broadcasts can require permission even when unicast control works. If an independent receiver misses limited broadcasts as your user but receives them under `sudo`, investigate process access policy; root is only a diagnostic comparison, not a normal way to run the desktop app. Recent traffic shows RX requests and TX State writes. Hover a row for the peer IP/port, source ID, sequence, response count, and send error; RX requests that produce no reply are marked. A successful UDP write does not prove client receipt. The socket summary shows RX, decoded, TX, dropped, and send-error counters; hover for the last sender and error. If a packet appears in tcpdump but RX stays unchanged, investigate OS permissions, interface delivery, and firewall rules before changing protocol responses.
+
 Allow inbound UDP 56700 and outbound UDP replies in your firewall. Clients must share a broadcast domain; guest Wi-Fi, access-point isolation, VLAN boundaries, containers, and VPN routing may prevent discovery. A selected interface still uses wildcard socket binding to receive broadcasts, then filters by incoming interface and selects the reply source through IPv4 packet metadata. Unsupported packet-metadata platforms report an interface-selection error; wildcard listening remains available. Another process cannot own the same UDP port. Ephemeral-port tests and headless overrides avoid that conflict, but normal LAN discovery expects port 56700.
 
-Supported queries include service, product/version, host and Wi-Fi firmware, label, device/light power, whole color, legacy and extended multizone state, and matrix chain/64-color state. Location/group and signal queries return static virtual metadata to satisfy `lifxlan-go` classification; the signal value is not a measurement.
+Supported queries include service, product/version, host and Wi-Fi firmware, label, device/light power, whole color, legacy and extended multizone state, and matrix chain/64-color state. Multizone and matrix firmware-effect Gets report OFF; effect execution and SetEffect remain unsupported. Location/group and signal queries return static virtual metadata to satisfy `lifxlan-go` classification; the signal value is not a measurement.
 
 Supported visual Sets:
 
