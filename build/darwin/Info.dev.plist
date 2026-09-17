@@ -19,6 +19,8 @@
         <string>iconfile</string>
         <key>LSMinimumSystemVersion</key>
         <string>10.13.0</string>
+        <key>NSLocalNetworkUsageDescription</key>
+        <string>Receive LIFX discovery broadcasts and exchange light-control messages with clients on your local network.</string>
         <key>NSHighResolutionCapable</key>
         <string>true</string>
         <key>NSHumanReadableCopyright</key>

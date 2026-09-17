@@ -12,6 +12,7 @@ import (
 	"lifx-emulator/internal/config"
 	"lifx-emulator/internal/lan"
 
+	"github.com/alessio-palumbo/lifxlan-go/pkg/client"
 	"github.com/alessio-palumbo/lifxlan-go/pkg/device"
 	"github.com/alessio-palumbo/lifxregistry-go/gen/registry"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -25,6 +26,7 @@ type Product struct {
 	Chain     bool
 }
 type View struct {
+	Transport  lan.TransportStats
 	Devices    []lan.Snapshot
 	Recent     []lan.Activity
 	Listening  string
@@ -96,6 +98,7 @@ func (a *App) frames(ctx context.Context) {
 	var previous uint64
 	wasActive := false
 	lastPacket := time.Time{}
+	var lastTransport lan.TransportStats
 	for {
 		select {
 		case <-ctx.Done():
@@ -118,13 +121,17 @@ func (a *App) frames(ctx context.Context) {
 			if len(recent) > 0 {
 				packet = recent[len(recent)-1].At
 			}
-			if revision != previous || active || wasActive || packet != lastPacket {
+			a.mu.Lock()
+			transport := a.transportStats()
+			a.mu.Unlock()
+			if revision != previous || active || wasActive || packet != lastPacket || transport != lastTransport {
 				a.mu.Lock()
-				v := View{Devices: devices, Recent: recent, Listening: a.address, Error: a.failure}
+				v := View{Transport: transport, Devices: devices, Recent: recent, Listening: a.address, Error: a.failure}
 				a.mu.Unlock()
 				runtime.EventsEmit(a.ctx, "frame", v)
 				previous = revision
 				lastPacket = packet
+				lastTransport = transport
 			}
 			wasActive = active
 			fast = active
@@ -135,6 +142,14 @@ func (a *App) frames(ctx context.Context) {
 			timer.Reset(delay)
 		}
 	}
+}
+
+// Caller holds a.mu.
+func (a *App) transportStats() lan.TransportStats {
+	if a.server != nil {
+		return a.server.Stats()
+	}
+	return lan.TransportStats{}
 }
 func (a *App) Snapshot() View {
 	a.mu.Lock()
@@ -151,7 +166,7 @@ func (a *App) Snapshot() View {
 			}
 		}
 	}
-	return View{d, r, a.address, a.failure, interfaces}
+	return View{Transport: a.transportStats(), Devices: d, Recent: r, Listening: a.address, Error: a.failure, Interfaces: interfaces}
 }
 func (a *App) Products() []Product {
 	out := []Product{}
@@ -160,7 +175,12 @@ func (a *App) Products() []Product {
 			out = append(out, Product{id, p.Name, p.Features.Multizone, p.Features.Matrix, p.Features.Chain})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out
 }
 func (a *App) Add(d config.Definition) error {
@@ -285,4 +305,34 @@ func (a *App) ListenOn(ip string) error {
 		}
 	}()
 	return config.Save(a.path, a.file)
+}
+
+// RequestLANAccess performs an outgoing socket connection to the same limited
+// broadcast address used by the official app. macOS can use this operation to
+// show its local-network permission prompt. Connecting sends no datagram;
+// success is not a general permission-status check.
+func (a *App) RequestLANAccess() error {
+	a.mu.Lock()
+	listen := a.file.Listen
+	a.mu.Unlock()
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return fmt.Errorf("invalid listen address: %w", err)
+	}
+	selected := net.ParseIP(host)
+	interfaces, err := client.BroadcastInterfaces()
+	if err != nil {
+		return err
+	}
+	for _, iface := range interfaces {
+		if selected != nil && !selected.IsUnspecified() && !selected.Equal(iface.IP) {
+			continue
+		}
+		conn, err := net.DialUDP("udp4", &net.UDPAddr{IP: iface.IP}, &net.UDPAddr{IP: net.IPv4bcast, Port: 56700})
+		if err != nil {
+			return fmt.Errorf("LAN access request failed: %w. Allow lifx-emulator in System Settings → Privacy & Security → Local Network, then retry", err)
+		}
+		return conn.Close()
+	}
+	return fmt.Errorf("no broadcast-capable IPv4 interface is available for the selected listen address")
 }
