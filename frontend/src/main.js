@@ -16,17 +16,27 @@ root.addEventListener('click',event=>{const button=event.target.closest('button'
 function collapseIdentity(event){for(const form of root.querySelectorAll('.identity:not([hidden])')){if(!form.contains(event.target)&&!form.closest('article').querySelector('.edit').contains(event.target))form.hidden=true;}}
 document.addEventListener('pointerdown',collapseIdentity);
 document.addEventListener('focusin',collapseIdentity);
-function error(e){el('error').textContent=String(e||'');}
+let errorTimer;
+function error(e,timeout=0){clearTimeout(errorTimer);el('error').textContent=String(e||'');if(timeout)errorTimer=setTimeout(()=>{el('error').textContent='';},timeout);}
 async function action(fn){try{await fn();error('');await refresh();}catch(e){error(e);}}
 async function refresh(){view=await api().Snapshot();render();}
 function topology(){const p=products.find(p=>p.ID===Number(el('product').value));el('topology').innerHTML=p?.Multizone?'<label>Physical zones<input id="zones" type="number" min="1" max="255" value="16"></label>':p?.Matrix?'<div class="dimensions"><label>Send width<input id="width" type="number" min="1" max="255" value="8"></label><label>Height<input id="height" type="number" min="1" max="255" value="8"></label></div><label>Chain length<input id="chains" type="number" min="1" max="16" value="'+(p.Chain?5:1)+'" '+(!p.Chain?'readonly':'')+'></label><label>Orientation<select id="orientation"><option value="0">Right side up</option><option value="1">Upside down</option><option value="2">Face up</option><option value="3">Face down</option><option value="4">Left</option><option value="5">Right</option></select></label>':'';enhanceSelects(root);}
 el('product').onchange=topology;
-el('lan-access').onclick=async()=>{const button=el('lan-access');button.disabled=true;networkNote('Allow local-network access if macOS prompts. If access was previously denied, enable lifx-emulator in System Settings → Privacy & Security → Local Network.');try{await api().RequestLANAccess();error('');networkNote('LAN access request completed. Allow any macOS prompt, then retry discovery in your LIFX LAN client.',6000);}catch(e){networkNote('');error(e);}finally{button.disabled=false;}};
+let lanAccessBusy=false;
+const lanAccessTitle=el('lan-access').title;
+function renderLANAccess(){
+ const button=el('lan-access');
+ const loopback=/^127\./.test(view.Listening?.split(':')[0]||'');
+ button.hidden=view.Platform!=='darwin';
+ button.disabled=loopback||lanAccessBusy||interfaceChanging;
+ button.title=loopback?'LAN access is unavailable on loopback. Select a LAN interface or 0.0.0.0.':lanAccessTitle;
+}
+el('lan-access').onclick=async()=>{const button=el('lan-access');if(button.disabled)return;lanAccessBusy=true;renderLANAccess();networkNote('Allow local-network access if macOS prompts. If access was previously denied, enable lifx-emulator in System Settings → Privacy & Security → Local Network.');try{await api().RequestLANAccess();error('');networkNote('LAN access request completed. Allow any macOS prompt, then retry discovery in your LIFX LAN client.',6000);}catch(e){networkNote('');error(e,6000);}finally{lanAccessBusy=false;renderLANAccess();}};
 let interfaceChanging=false;
 el('interface').onchange=async()=>{
  const select=el('interface');
  if(interfaceChanging||select.value===view.Listening?.split(':')[0])return;
- interfaceChanging=true;select.disabled=true;enhanceSelects(root);
+ interfaceChanging=true;select.disabled=true;renderLANAccess();enhanceSelects(root);
  try{await api().ListenOn(select.value);error('');}catch(e){error(e);}
  finally{try{await refresh();}catch(e){error(e);}interfaceChanging=false;select.disabled=false;render();}
 };
@@ -50,7 +60,7 @@ function renderMembership(){
 }
 function render(){
  renderMembership();
- el('lan-access').hidden=view.Platform!=='darwin';
+ renderLANAccess();
  const t=view.Transport||{}; const transportLines=`<span>RX ${t.Received||0} · decoded ${t.Decoded||0} · TX ${t.Replies||0}</span><span>Dropped ${(t.Filtered||0)+(t.Invalid||0)} · send errors ${t.SendErrors||0}</span>`;if(el('transport').innerHTML!==transportLines)el('transport').innerHTML=transportLines; el('transport').title=[t.LastPeer&&`Last sender: ${t.LastPeer}`,t.LastError].filter(Boolean).join('\n');
  el('status').textContent=view.Error?`● Listener stopped: ${view.Error}`:`● Listening · ${view.Listening}`;
  el('count').textContent=`${view.Devices.length} lights`;

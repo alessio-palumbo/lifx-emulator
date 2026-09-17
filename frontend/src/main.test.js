@@ -170,3 +170,35 @@ test('LAN panel shows membership names and cog settings dismiss outside or with 
   assert.equal(panel.hidden,true);
  }finally{await a.close();}
 });
+
+test('LAN helper disables on the loopback range and stays disabled during requests',async()=>{
+ const a=await app();
+ try{
+  const button=a.document.querySelector('#lan-access');
+  for(const ip of ['127.0.0.1','127.0.0.2']){
+   a.frame({...a.state,Listening:ip+':56700'});
+   assert.equal(button.disabled,true);assert.match(button.title,/loopback/);
+  }
+  a.frame(a.state);assert.equal(button.disabled,false);
+  let complete;
+  a.window.go.app.App.RequestLANAccess=()=>new Promise(resolve=>{complete=resolve;});
+  button.click();assert.equal(button.disabled,true);
+  a.frame(a.state);assert.equal(button.disabled,true);
+  complete();await tick();assert.equal(button.disabled,false);
+ }finally{await a.close();}
+});
+test('LAN helper errors expire without clearing a newer operation error',async()=>{
+ const a=await app();
+ try{
+  const button=a.document.querySelector('#lan-access');
+  a.window.go.app.App.RequestLANAccess=async()=>{throw new Error('No LAN interface available');};
+  button.click();await tick();
+  assert.match(a.document.querySelector('#error').textContent,/No LAN interface/);
+  a.runTimers(6000);assert.equal(a.document.querySelector('#error').textContent,'');
+  button.click();await tick();
+  a.window.go.app.App.ListenOn=async()=>{throw new Error('Cannot bind interface');};
+  const select=a.document.querySelector('#interface');
+  select.value='192.168.1.10';select.dispatchEvent(new a.window.Event('change'));await tick();
+  a.runTimers(6000);assert.match(a.document.querySelector('#error').textContent,/Cannot bind interface/);
+ }finally{await a.close();}
+});
