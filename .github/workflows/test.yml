@@ -1,0 +1,58 @@
+name: Test and build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    name: Test and build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            os: macos-15
+            platform: darwin/universal
+          - name: linux
+            os: ubuntu-22.04
+            platform: linux/amd64
+          - name: windows
+            os: windows-latest
+            platform: windows/amd64
+    defaults:
+      run:
+        shell: bash
+        working-directory: lifx-emulator
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: lifx-emulator
+          persist-credentials: false
+      - name: Set up project
+        uses: ./lifx-emulator/.github/actions/setup-project
+      - name: Check Go formatting
+        run: |
+          unformatted="$(gofmt -l main.go cmd internal)"
+          if [[ -n "$unformatted" ]]; then
+            printf 'Go files need formatting:\n%s\n' "$unformatted"
+            exit 1
+          fi
+      - name: Test frontend
+        run: npm --prefix frontend test
+      - name: Build frontend
+        run: npm --prefix frontend run build
+      - name: Test Go
+        run: go test ./...
+      - name: Race checks
+        if: runner.os != 'Windows'
+        run: go test -race ./...
+      - name: Build Wails app without bundled rules
+        run: wails build -clean -platform '${{ matrix.platform }}'

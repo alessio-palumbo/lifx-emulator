@@ -71,7 +71,7 @@ func TestGetDuringTransitionAndTargetRouting(t *testing.T) {
 }
 func TestUDPDiscoveryIdentityAndRoundTrips(t *testing.T) {
 	r := testRouter(t)
-	s, err := Listen("127.0.0.1:0", r)
+	s, err := Listen("0.0.0.0:0", r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +86,7 @@ func TestUDPDiscoveryIdentityAndRoundTrips(t *testing.T) {
 		}
 	}()
 	addr, _ := net.ResolveUDPAddr("udp4", s.Address())
+	addr.IP = net.IPv4(127, 0, 0, 1)
 	c, err := net.DialUDP("udp4", nil, addr)
 	if err != nil {
 		t.Fatal(err)

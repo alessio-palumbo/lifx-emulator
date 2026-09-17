@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,12 +35,16 @@ func ResponsePath() string {
 	return filepath.Join(filepath.Dir(Path()), "responses.local.json")
 }
 
-// Missing optional files leave normal public protocol behavior enabled.
+// LoadResponses overlays an optional local file on bundled defaults.
 func LoadResponses(path string) (ResponseFile, error) {
+	bundled, err := BundledResponses()
+	if err != nil {
+		return ResponseFile{}, err
+	}
 	var f ResponseFile
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) && path == ResponsePath() && os.Getenv("LIFX_EMULATOR_RESPONSES") == "" {
-		return f, nil
+		return bundled, nil
 	}
 	if err != nil {
 		return f, err
@@ -52,14 +57,32 @@ func LoadResponses(path string) (ResponseFile, error) {
 	if info.Size() > 1<<20 {
 		return f, fmt.Errorf("local responses file exceeds 1 MiB")
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, 1<<20))
+
+	data, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	if err != nil {
+		return f, err
+	}
+	local, err := DecodeResponses(data)
+	if err != nil {
+		return f, err
+	}
+	return MergeResponses(bundled, local)
+}
+
+// DecodeResponses parses the same schema for local files and build-time input.
+func DecodeResponses(data []byte) (ResponseFile, error) {
+	var f ResponseFile
+	if len(data) > 1<<20 {
+		return f, fmt.Errorf("response configuration exceeds 1 MiB")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&f); err != nil {
-		return f, fmt.Errorf("local responses: %w", err)
+		return f, fmt.Errorf("response configuration: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return f, fmt.Errorf("local responses: expected exactly one JSON object")
+		return f, fmt.Errorf("response configuration: expected exactly one JSON object")
 	}
 	return f, nil
 }

@@ -3,7 +3,9 @@ frontend/dist/
 build/bin/
 .DS_Store
 
-# Local response fixtures are supplied by the user, never bundled.
+# Keep local and CI-supplied response fixtures out of source control.
 responses.local.json
 *.pcap
 *.pcapng
+internal/config/bundled/*.local.json
+release/

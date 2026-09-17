@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"sync"
 
 	"github.com/alessio-palumbo/lifxlan-go/pkg/protocol"
@@ -63,6 +64,14 @@ func Listen(address string, r *Router) (*Server, error) {
 	}
 	// Wildcard binding receives subnet broadcasts even when an interface is selected.
 	bind := &net.UDPAddr{IP: net.IPv4zero, Port: a.Port}
+	// Loopback needs no broadcast/interface metadata and works on every OS.
+	if selected.IsLoopback() {
+		bind.IP = selected
+		index = 0
+	}
+	if index != 0 && runtime.GOOS == "windows" {
+		return nil, fmt.Errorf("interface selection requires IPv4 packet metadata; use 0.0.0.0 on Windows")
+	}
 	c, err := net.ListenUDP("udp4", bind)
 	if err != nil {
 		return nil, err

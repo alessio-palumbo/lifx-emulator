@@ -1,0 +1,55 @@
+name: Set up lifx-emulator
+description: Install native build tools and check out pinned sibling libraries.
+inputs:
+  cache-go:
+    description: Cache Go dependencies and build outputs; disabled for secret-backed release builds.
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Checkout lifxlan-go (v0.11.0)
+      uses: actions/checkout@v7
+      with:
+        repository: alessio-palumbo/lifxlan-go
+        ref: cd274c195d6183b29547028f8c11f60e41f7870e
+        path: lifxlan-go
+        persist-credentials: false
+    - name: Checkout lifxprotocol-go (v0.5.0)
+      uses: actions/checkout@v7
+      with:
+        repository: alessio-palumbo/lifxprotocol-go
+        ref: b173d05764a993cb44d89f697dda3ead79f2ecc3
+        path: lifxprotocol-go
+        persist-credentials: false
+    - name: Checkout lifxregistry-go (v0.4.0)
+      uses: actions/checkout@v7
+      with:
+        repository: alessio-palumbo/lifxregistry-go
+        ref: 303be68d3780869ca2d2aa7fb347a4d35e803d5b
+        path: lifxregistry-go
+        persist-credentials: false
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: lifx-emulator/go.mod
+        cache: ${{ inputs.cache-go }}
+        cache-dependency-path: lifx-emulator/go.sum
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: "22"
+        cache: npm
+        cache-dependency-path: lifx-emulator/frontend/package-lock.json
+    - name: Install Linux Wails dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.0-dev
+    - name: Install frontend dependencies
+      shell: bash
+      working-directory: lifx-emulator/frontend
+      run: npm ci
+    - name: Install Wails
+      shell: bash
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0

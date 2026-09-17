@@ -1,0 +1,146 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-universal
+            os: macos-15
+            platform: darwin/universal
+            archive: lifx-emulator-macos-universal.zip
+          - name: linux-amd64
+            os: ubuntu-22.04
+            platform: linux/amd64
+            archive: lifx-emulator-linux-amd64.tar.gz
+          - name: windows-amd64
+            os: windows-latest
+            platform: windows/amd64
+            archive: lifx-emulator-windows-amd64.zip
+    defaults:
+      run:
+        shell: bash
+        working-directory: lifx-emulator
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: lifx-emulator
+          persist-credentials: false
+      - name: Set up project
+        uses: ./lifx-emulator/.github/actions/setup-project
+        with:
+          # Build caches may contain embedded rules; do not export them.
+          cache-go: "false"
+      - name: Test frontend
+        run: npm --prefix frontend test
+      - name: Build frontend
+        run: npm --prefix frontend run build
+      - name: Test Go
+        run: go test ./...
+      - name: Prepare bundled response defaults
+        env:
+          LIFX_COMPAT_RESPONSES_JSON: ${{ secrets.LIFX_COMPAT_RESPONSES_JSON }}
+        run: go run ./cmd/prepare-responses
+      - name: Prepare bundle version
+        env:
+          RELEASE_REF: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const config = JSON.parse(fs.readFileSync('wails.json', 'utf8'));
+          const version = process.env.RELEASE_REF.match(/^v(\d+\.\d+\.\d+)(?:[-+].*)?$/)?.[1] || '0.1.0';
+          config.info = {...config.info, productName: 'LIFX Emulator', productVersion: version};
+          fs.writeFileSync('wails.json', JSON.stringify(config, null, 2) + '\n');
+          JS
+      - name: Import Developer ID certificate
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: ./scripts/import-macos-certificate.sh
+      - name: Build Wails app with bundled defaults
+        run: wails build -clean -platform '${{ matrix.platform }}'
+      - name: Build headless runner with bundled defaults
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o "$RUNNER_TEMP/headless-amd64" ./cmd/headless
+            CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -o "$RUNNER_TEMP/headless-arm64" ./cmd/headless
+            lipo -create "$RUNNER_TEMP/headless-amd64" "$RUNNER_TEMP/headless-arm64" \
+              -output build/bin/lifx-emulator.app/Contents/MacOS/lifx-emulator-headless
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            go build -trimpath -o build/bin/lifx-emulator-headless.exe ./cmd/headless
+          else
+            go build -trimpath -o build/bin/lifx-emulator-headless ./cmd/headless
+          fi
+      - name: Sign and notarize macOS app
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: ./scripts/sign-notarize-macos.sh build/bin/lifx-emulator.app release/${{ matrix.archive }}
+      - name: Package Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path build/bin/lifx-emulator.exe,build/bin/lifx-emulator-headless.exe -DestinationPath release/${{ matrix.archive }}
+      - name: Package Linux build
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p release
+          tar -czf release/${{ matrix.archive }} -C build/bin lifx-emulator lifx-emulator-headless
+      - name: Upload packaged build
+        uses: actions/upload-artifact@v7
+        with:
+          name: lifx-emulator-${{ matrix.name }}
+          path: lifx-emulator/release/${{ matrix.archive }}
+          if-no-files-found: error
+      - name: Remove generated response resource
+        if: always()
+        run: |
+          python -c "from pathlib import Path; Path('internal/config/bundled/compat.local.json').unlink(missing_ok=True)"
+      - name: Remove macOS signing material
+        if: always() && runner.os == 'macOS'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/lifx-emulator-signing.keychain-db" || true
+          python -c "import os; from pathlib import Path; (Path(os.environ['RUNNER_TEMP']) / 'developer-id.p12').unlink(missing_ok=True)"
+  publish:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged builds
+        uses: actions/download-artifact@v8
+        with:
+          pattern: lifx-emulator-*
+          merge-multiple: true
+          path: release
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* --repo "$RELEASE_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" release/* \
+              --repo "$RELEASE_REPOSITORY" --verify-tag --generate-notes
+          fi

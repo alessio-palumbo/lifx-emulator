@@ -1,0 +1,2 @@
+# Preserve formatter output and shell scripts across Windows checkouts.
+* text=auto eol=lf
