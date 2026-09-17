@@ -371,6 +371,9 @@ func TestCapturedAppDiscoveryAndTransportCounters(t *testing.T) {
 
 func TestUDPPublicAppQueriesReturnCorrelatedStates(t *testing.T) {
 	r := testRouter(t)
+	location := packets.DeviceStateLocation{Location: [16]byte{7, 8, 9}, Label: label("Shared test lab"), UpdatedAt: 123456789}
+	group := packets.DeviceStateGroup{Group: [16]byte{10, 11, 12}, Label: label("Alice's emulator"), UpdatedAt: 987654321}
+	r.SetMembership(location, group)
 	s, err := Listen("127.0.0.1:0", r)
 	if err != nil {
 		t.Fatal(err)
@@ -438,12 +441,12 @@ func TestUDPPublicAppQueriesReturnCorrelatedStates(t *testing.T) {
 			}
 			switch p := state.Payload.(type) {
 			case *packets.DeviceStateGroup:
-				if p.Group == [16]byte{} || p.Label == [32]byte{} {
-					t.Fatal("empty group metadata")
+				if *p != group {
+					t.Fatal("configured group metadata mismatch")
 				}
 			case *packets.DeviceStateLocation:
-				if p.Location == [16]byte{} || p.Label == [32]byte{} {
-					t.Fatal("empty location metadata")
+				if *p != location {
+					t.Fatal("configured location metadata mismatch")
 				}
 			case *packets.MultiZoneStateEffect:
 				if p.Settings.Type != 0 {

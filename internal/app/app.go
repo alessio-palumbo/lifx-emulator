@@ -26,6 +26,8 @@ type Product struct {
 	Chain     bool
 }
 type View struct {
+	Location   config.Location
+	Group      config.Group
 	Transport  lan.TransportStats
 	Devices    []lan.Snapshot
 	Recent     []lan.Activity
@@ -133,7 +135,7 @@ func (a *App) frames(ctx context.Context) {
 			a.mu.Unlock()
 			if revision != previous || active || wasActive || packet != lastPacket || transport != lastTransport {
 				a.mu.Lock()
-				v := View{Transport: transport, Devices: devices, Recent: recent, Listening: a.address, Error: a.failure}
+				v := View{Location: a.file.Location, Group: a.file.Group, Transport: transport, Devices: devices, Recent: recent, Listening: a.address, Error: a.failure}
 				a.mu.Unlock()
 				runtime.EventsEmit(a.ctx, "frame", v)
 				previous = revision
@@ -173,7 +175,7 @@ func (a *App) Snapshot() View {
 			}
 		}
 	}
-	return View{Transport: a.transportStats(), Devices: d, Recent: r, Listening: a.address, Error: a.failure, Interfaces: interfaces}
+	return View{Location: a.file.Location, Group: a.file.Group, Transport: a.transportStats(), Devices: d, Recent: r, Listening: a.address, Error: a.failure, Interfaces: interfaces}
 }
 func (a *App) Products() []Product {
 	out := []Product{}
@@ -208,6 +210,7 @@ func (a *App) Add(d config.Definition) error {
 	if err != nil {
 		return err
 	}
+	a.file.ApplyMembership(v)
 	f := a.file
 	f.Devices = append(append([]config.Definition(nil), f.Devices...), d)
 	if err = config.Save(a.path, f); err != nil {
@@ -342,4 +345,39 @@ func (a *App) RequestLANAccess() error {
 		return conn.Close()
 	}
 	return fmt.Errorf("no broadcast-capable IPv4 interface is available for the selected listen address")
+}
+
+// UpdateMembership changes the shared location/group identity of this installation.
+func (a *App) UpdateMembership(locationLabel, locationID, groupLabel, groupID string) error {
+	location, err := device.ParseLocationID(locationID)
+	if err != nil {
+		return err
+	}
+	group, err := device.ParseGroupID(groupID)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.loadError != nil {
+		return a.loadError
+	}
+	if a.router == nil {
+		return fmt.Errorf("not initialized")
+	}
+	f := a.file
+	now := uint64(time.Now().UnixNano())
+	if f.Location.ID != location || f.Location.Label != locationLabel {
+		f.Location = config.Location{ID: location, Label: locationLabel, UpdatedAt: max(now, f.Location.UpdatedAt+1)}
+	}
+	if f.Group.ID != group || f.Group.Label != groupLabel {
+		f.Group = config.Group{ID: group, Label: groupLabel, UpdatedAt: max(now, f.Group.UpdatedAt+1)}
+	}
+	if err := config.Save(a.path, f); err != nil {
+		return err
+	}
+	l, g := f.MembershipPackets()
+	a.router.SetMembership(l, g)
+	a.file = f
+	return nil
 }

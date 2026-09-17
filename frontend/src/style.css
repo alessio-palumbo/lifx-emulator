@@ -48,3 +48,9 @@ button:disabled{cursor:default;opacity:.55}
 #activity:focus-visible{outline:1px solid #66768a;outline-offset:4px}
 .traffic-mode{padding:4px 7px;font-size:10px;font-weight:400}
 .traffic-mode[aria-pressed=true]{color:#b9e9c9;border-color:#678775}
+
+.membership-panel summary{font-size:13px;color:#c3ccd9;cursor:pointer}
+.membership-panel summary:focus-visible{outline:2px solid #b9e9c9;outline-offset:4px}
+.membership-ids{margin:15px 0}
+.membership-ids summary{font-size:11px;color:#97a7ba}
+.membership-ids input{font:11px ui-monospace,monospace}

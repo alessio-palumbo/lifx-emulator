@@ -40,9 +40,11 @@ type waveform struct {
 	transient bool
 }
 type VirtualDevice struct {
-	Device  device.Device
-	State   *LightState
-	Enabled bool
+	Device            device.Device
+	State             *LightState
+	Enabled           bool
+	LocationUpdatedAt uint64
+	GroupUpdatedAt    uint64
 }
 
 func New(d device.Device, enabled bool) *VirtualDevice {

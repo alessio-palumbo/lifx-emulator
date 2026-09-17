@@ -20,9 +20,9 @@ func (r *Router) respond(v *emulator.VirtualDevice, p packets.Payload, applied b
 	case *packets.DeviceGetService:
 		return one(&packets.DeviceStateService{Service: 1, Port: r.Port})
 	case *packets.DeviceGetLocation:
-		return one(&packets.DeviceStateLocation{Location: [16]byte{2, 1}, Label: label("Virtual LAN"), UpdatedAt: 1})
+		return one(&packets.DeviceStateLocation{Location: [16]byte(v.Device.LocationID), Label: label(v.Device.Location), UpdatedAt: v.LocationUpdatedAt})
 	case *packets.DeviceGetGroup:
-		return one(&packets.DeviceStateGroup{Group: [16]byte{2, 2}, Label: label("Emulator"), UpdatedAt: 1})
+		return one(&packets.DeviceStateGroup{Group: [16]byte(v.Device.GroupID), Label: label(v.Device.Group), UpdatedAt: v.GroupUpdatedAt})
 	case *packets.DeviceGetWifiInfo:
 		return one(&packets.DeviceStateWifiInfo{Signal: -50})
 	case *packets.DeviceGetVersion:

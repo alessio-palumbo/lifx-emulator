@@ -28,8 +28,10 @@ type Definition struct {
 	Orientations []device.Orientation
 }
 type File struct {
-	Listen  string
-	Devices []Definition
+	Listen   string
+	Devices  []Definition
+	Location Location
+	Group    Group
 }
 
 func Path() string {
@@ -116,6 +118,9 @@ func (d Definition) Virtual() (*emulator.VirtualDevice, error) {
 }
 func Defaults() (File, error) {
 	f := File{Listen: "0.0.0.0:56700"}
+	if _, err := f.initializeMembership(); err != nil {
+		return f, err
+	}
 	for _, d := range []Definition{{Label: "Virtual bulb", Product: 27, Enabled: true}, {Label: "Virtual strip", Product: 32, Enabled: true, Zones: 16}, {Label: "Virtual Tiles", Product: 55, Enabled: true, Width: 8, Height: 8, Chains: 5}} {
 		var err error
 		d.Serial, err = UniqueSerial(f.Devices)
@@ -143,6 +148,10 @@ func Load(path string) (File, error) {
 	if err != nil {
 		return f, err
 	}
+	migrated, err := f.initializeMembership()
+	if err != nil {
+		return f, err
+	}
 	vs, validationErr := f.Virtuals()
 	if validationErr != nil {
 		return f, validationErr
@@ -150,9 +159,17 @@ func Load(path string) (File, error) {
 	for i, v := range vs {
 		f.Devices[i].Serial = v.Device.Serial.String()
 	}
+	if migrated {
+		if err := Save(path, f); err != nil {
+			return f, err
+		}
+	}
 	return f, nil
 }
 func (f File) Virtuals() ([]*emulator.VirtualDevice, error) {
+	if err := f.ValidateMembership(); err != nil {
+		return nil, err
+	}
 	out := []*emulator.VirtualDevice{}
 	seen := map[device.Serial]bool{}
 	for _, d := range f.Devices {
@@ -164,6 +181,7 @@ func (f File) Virtuals() ([]*emulator.VirtualDevice, error) {
 			return nil, fmt.Errorf("duplicate serial")
 		}
 		seen[v.Device.Serial] = true
+		f.ApplyMembership(v)
 		out = append(out, v)
 	}
 	return out, nil

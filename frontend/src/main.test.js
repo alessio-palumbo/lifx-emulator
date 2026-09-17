@@ -13,8 +13,8 @@ async function app() {
   window.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, {get:(_,key)=>key==='fillStyle'?'#fff':()=>{},set:()=>true});
   const devices = ['First light','Second light'].map((Label,index)=>({Serial:`02000000000${index+1}`,Label,Model:'Color',Enabled:true,Product:27,Kind:'single_zone',Power:65535,Colors:[{}],Surface:{}}));
   const Recent = Array.from({length:80},(_,index)=>({At:new Date(index*1000).toISOString(),Direction:'RX',Target:devices[0].Serial,Type:101,TypeName:'LightGet',Replies:1,Sequence:index}));
-  const state = {Devices:devices,Recent,Interfaces:['0.0.0.0'],Listening:'0.0.0.0:56700',Transport:{Received:800,Decoded:799,Replies:700,Invalid:1}};
-  window.go = {app:{App:{Products:async()=>[{ID:27,Name:'Color'}],Snapshot:async()=>state,RequestLANAccess:async()=>{},Update:async()=>{}}}};
+  const state = {Location:{ID:'11111111-1111-4111-8111-111111111111',Label:'Test lab'},Group:{ID:'22222222-2222-4222-8222-222222222222',Label:'Alice'},Devices:devices,Recent,Interfaces:['0.0.0.0'],Listening:'0.0.0.0:56700',Transport:{Received:800,Decoded:799,Replies:700,Invalid:1}};
+  window.go = {app:{App:{Products:async()=>[{ID:27,Name:'Color'}],Snapshot:async()=>state,RequestLANAccess:async()=>{},UpdateMembership:async(locationLabel,locationID,groupLabel,groupID)=>{state.Location={Label:locationLabel,ID:locationID};state.Group={Label:groupLabel,ID:groupID};},Update:async()=>{}}}};
   let frame;
   window.runtime = {EventsOn:(_,callback)=>{frame=callback;}};
   const timers = new Map();
@@ -98,4 +98,21 @@ test('traffic uses two counter lines and the existing bounded history', async ()
     a.frame({...latest,Recent:[...latest.Recent.slice(1),{...latest.Recent[0],At:new Date(200000).toISOString()}]});
     assert.equal(history.innerHTML,manuallyPausedHTML);
   } finally {await a.close();}
+});
+
+test('location/group edits survive frames and save with unchanged IDs',async()=>{
+ const a=await app();
+ try{
+  const input=a.document.querySelector('#group-label');
+  assert.equal(input.value,'Alice');
+  const id=a.document.querySelector('#group-id').value;
+  input.value='Bob';input.dispatchEvent(new a.window.Event('input',{bubbles:true}));
+  a.frame({...a.state});
+  assert.equal(input.value,'Bob');
+  a.document.querySelector('#membership').dispatchEvent(new a.window.Event('submit',{bubbles:true,cancelable:true}));
+  await tick();
+  assert.equal(a.state.Group.Label,'Bob');
+  assert.equal(a.state.Group.ID,id);
+  assert.match(a.document.querySelector('#membership-summary').textContent,/Bob/);
+ }finally{await a.close();}
 });

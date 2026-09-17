@@ -210,3 +210,43 @@ func TestLocalCompositionErrorsAndDisabledTargets(t *testing.T) {
 		t.Fatal("size error missing")
 	}
 }
+
+func TestComposedMembershipRepliesUseCurrentPublicMetadata(t *testing.T) {
+	r := testRouter(t)
+	rules := config.ResponseFile{Responses: []config.ResponseRule{{RequestType: 60000, ResponseType: 60001, Parts: []config.ResponsePart{{Query: "DeviceGetLocation"}, {Query: "DeviceGetGroup"}, {Query: "DeviceGetLabel"}}}}}
+	if err := r.SetResponses(rules); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Original lab", "Renamed lab"} {
+		location := packets.DeviceStateLocation{Location: [16]byte{1, 2, 3}, Label: label(name), UpdatedAt: 12345}
+		group := packets.DeviceStateGroup{Group: [16]byte{4, 5, 6}, Label: label("Shared group"), UpdatedAt: 23456}
+		r.SetMembership(location, group)
+		l, err := location.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, err := group.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range r.Devices {
+			replies := r.Handle(message(&opaquePayload{kind: 60000}, [8]byte(v.Device.Serial)))
+			if len(replies) != 1 {
+				t.Fatal("missing composed response")
+			}
+			data, err := replies[0].Payload.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := packets.DeviceStateLabel{Label: label(v.Device.Label)}
+			b, err := q.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := append(append(append([]byte{}, l...), g...), b...)
+			if !bytes.Equal(data, expected) {
+				t.Fatal("composed response does not reflect current metadata")
+			}
+		}
+	}
+}

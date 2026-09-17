@@ -221,3 +221,18 @@ func (r *Router) Remove(serial string) {
 		}
 	}
 }
+
+// SetMembership updates identity under the router lock without resetting light state.
+func (r *Router) SetMembership(location packets.DeviceStateLocation, group packets.DeviceStateGroup) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, v := range r.Devices {
+		v.Device.LocationID = device.LocationID(location.Location)
+		v.Device.Location = device.ParseLabel(location.Label)
+		v.Device.GroupID = device.GroupID(group.Group)
+		v.Device.Group = device.ParseLabel(group.Label)
+		v.LocationUpdatedAt = location.UpdatedAt
+		v.GroupUpdatedAt = group.UpdatedAt
+	}
+	r.changed()
+}

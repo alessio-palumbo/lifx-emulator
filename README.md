@@ -48,7 +48,11 @@ The listen override is not persisted. Headless operation needs no Wails runtime 
 
 Definitions persist atomically in the OS user configuration directory under `lifx-emulator/devices.json`. On macOS this is `~/Library/Application Support/lifx-emulator/devices.json`. `LIFX_EMULATOR_CONFIG` overrides the path for the desktop and default headless runner.
 
-Only configured identity, enabled status, interface, and topology persist. Colors, power, animations, and activity start fresh on launch. Generated targets use a locally administered unicast MAC prefix and cryptographic random bytes. Duplicate configured targets are rejected. Disable a light before editing its serial; labels have the protocol's 32-byte limit.
+Only configured identity, location/group, enabled status, interface, and topology persist. Colors, power, animations, and activity start fresh on launch. Generated targets use a locally administered unicast MAC prefix and cryptographic random bytes. Duplicate configured targets are rejected. Disable a light before editing its serial; labels have the protocol's 32-byte limit.
+
+All lights in one emulator configuration share a location and group. Expand **Location & group** in the desktop to rename them. Each new configuration gets random persisted UUIDs, so independent emulator instances on the same LAN have distinct identities. Renaming keeps the IDs and advances the metadata timestamps; the default group label is the host name. Older configurations receive these fields automatically on their next launch.
+
+The advanced ID fields allow intentional sharing across emulator instances: use the same location UUID to share a location, or the same group UUID to share a group. Matching labels alone do not merge IDs. Headless mode uses the same top-level `Location` and `Group` objects in `devices.json`, each with `ID` (UUID string), `Label` (up to 32 UTF-8 bytes), and `UpdatedAt` (nanoseconds since epoch). Restart after manual edits and update the timestamp when changing metadata.
 
 The registry describes capabilities, not physical matrix dimensions or strip lengths. Choose physical zone count, **send width**, height, and chain length when adding a light. Tile defaults are 8×8 with five chain members; a Candle Color can use 5×6, a Ceiling 8×8, and a Ceiling 13×26 a physical 8×16 layout. The library derives display rows, offsets, hidden cells, and capsule reshaping. JSON supports individual chain `Orientations` (0 upright, 1 upside down, 2 face up, 3 face down, 4 left, 5 right); the creation form applies one orientation to all chain members. Chain members are displayed side by side.
 
@@ -76,7 +80,7 @@ Recent traffic shows incoming requests and outgoing State replies. Hover a row f
 
 Allow inbound UDP 56700 and outbound UDP replies in your firewall. Clients must share a broadcast domain; guest Wi-Fi, access-point isolation, VLAN boundaries, containers, and VPN routing may prevent discovery. A selected interface still uses wildcard socket binding to receive broadcasts, then filters by incoming interface and selects the reply source through IPv4 packet metadata. Unsupported packet-metadata platforms report an interface-selection error; wildcard listening remains available. On Windows, use `0.0.0.0`; explicit LAN-interface selection is unsupported, while loopback addresses remain available for tests. Another process cannot own the same UDP port. Ephemeral-port tests and headless overrides avoid that conflict, but normal LAN discovery expects port 56700.
 
-Supported queries include service, product/version, host and Wi-Fi firmware, label, device/light power, whole color, legacy and extended multizone state, and matrix chain/64-color state. Multizone and matrix firmware-effect Gets report OFF; effect execution and SetEffect remain unsupported. Location/group and signal queries return static virtual metadata; the signal value is not a measurement.
+Supported queries include service, product/version, host and Wi-Fi firmware, label, device/light power, whole color, legacy and extended multizone state, and matrix chain/64-color state. Multizone and matrix firmware-effect Gets report OFF; effect execution and SetEffect remain unsupported. Location/group queries return the persisted metadata. Signal queries return a static virtual value, not a measurement.
 
 Supported visual Sets:
 
