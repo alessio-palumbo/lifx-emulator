@@ -51,12 +51,13 @@ type Snapshot struct {
 	Active  bool
 }
 type Router struct {
-	mu       sync.Mutex
-	Devices  []*emulator.VirtualDevice
-	Clock    func() time.Time
-	Port     uint32
-	Revision uint64
-	Recent   []Activity
+	localResponses map[uint16]localResponse
+	mu             sync.Mutex
+	Devices        []*emulator.VirtualDevice
+	Clock          func() time.Time
+	Port           uint32
+	Revision       uint64
+	Recent         []Activity
 	// Applied is a bounded invalidation stream: accepted Sets publish immediately,
 	// consumers fetch coalesced snapshots. Packet handling never waits for the UI.
 	Applied chan struct{}
@@ -117,6 +118,17 @@ func (r *Router) HandleFrom(m *protocol.Message, peer string) []*protocol.Messag
 			r.changed()
 		}
 		payloads := r.respond(v, m.Payload, applied)
+		var responseError error
+		if _, opaque := m.Payload.(*opaquePayload); opaque {
+			payloads, responseError = r.localReply(v, m.Payload)
+			if len(payloads) == 0 && responseError == nil {
+				responseError = fmt.Errorf("Unsupported payload type")
+			}
+		}
+		diagnostic := ""
+		if responseError != nil {
+			diagnostic = responseError.Error()
+		}
 		for _, p := range payloads {
 			out := protocol.NewMessage(p)
 			out.SetTarget([8]byte(v.Device.Serial))
@@ -124,10 +136,10 @@ func (r *Router) HandleFrom(m *protocol.Message, peer string) []*protocol.Messag
 			out.SetSequence(m.Sequence())
 			responses = append(responses, out)
 		}
-		r.activity(Activity{Direction: "RX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), Replies: len(payloads), At: now, Target: v.Device.Serial.String(), Type: m.Type(), TypeName: payloadNames[m.Type()], Label: v.Device.Label, Applied: applied})
+		r.activity(Activity{Direction: "RX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), Replies: len(payloads), Error: diagnostic, At: now, Target: v.Device.Serial.String(), Type: m.Type(), TypeName: r.payloadName(m.Type()), Label: v.Device.Label, Applied: applied})
 	}
 	if !matched {
-		r.activity(Activity{Direction: "RX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), At: now, Target: device.Serial(m.Target()).String(), Type: m.Type(), TypeName: payloadNames[m.Type()], Error: "No enabled device matches target"})
+		r.activity(Activity{Direction: "RX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), At: now, Target: device.Serial(m.Target()).String(), Type: m.Type(), TypeName: r.payloadName(m.Type()), Error: "No enabled device matches target"})
 	}
 	return responses
 }
@@ -144,7 +156,7 @@ func (r *Router) activity(a Activity) {
 func (r *Router) RecordSend(m *protocol.Message, peer string, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	a := Activity{Direction: "TX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), At: r.Clock(), Target: device.Serial(m.Target()).String(), Type: m.Type(), TypeName: payloadNames[m.Type()]}
+	a := Activity{Direction: "TX", Peer: peer, Source: m.Source(), Sequence: m.Sequence(), At: r.Clock(), Target: device.Serial(m.Target()).String(), Type: m.Type(), TypeName: r.payloadName(m.Type())}
 	for _, v := range r.Devices {
 		if v.Device.Serial == device.Serial(m.Target()) {
 			a.Label = v.Device.Label

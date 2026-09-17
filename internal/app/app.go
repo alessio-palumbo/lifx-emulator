@@ -66,6 +66,13 @@ func (a *App) Startup(ctx context.Context) {
 		a.failure = err.Error()
 	}
 	a.router = lan.New(vs, nil)
+	responses, responseErr := config.LoadResponses(config.ResponsePath())
+	if responseErr == nil {
+		responseErr = a.router.SetResponses(responses)
+	}
+	if responseErr != nil {
+		a.failure = responseErr.Error()
+	}
 	if a.failure == "" {
 		s, err := lan.Listen(f.Listen, a.router)
 		if err != nil {

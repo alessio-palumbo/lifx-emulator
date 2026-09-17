@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/alessio-palumbo/lifxlan-go/pkg/protocol"
+	"github.com/alessio-palumbo/lifxprotocol-go/gen/protocol/packets"
 	"golang.org/x/net/ipv4"
 )
 
@@ -103,7 +104,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 	}()
 	defer close(s.done)
-	buf := make([]byte, 4096)
+	buf := make([]byte, maxDatagramSize)
 	for {
 		n, metadata, peer, err := s.packet.ReadFrom(buf)
 		if err != nil {
@@ -124,8 +125,13 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 		m := &protocol.Message{}
 		if err = m.UnmarshalBinary(buf[:n]); err != nil {
-			s.record(func(v *TransportStats) { v.Invalid++; v.LastError = err.Error() })
-			continue
+			if _, known := packets.Payloads[m.Type()]; known {
+				s.record(func(v *TransportStats) { v.Invalid++; v.LastError = err.Error() })
+				continue
+			}
+			p := &opaquePayload{kind: m.Type()}
+			_ = p.UnmarshalBinary(buf[36:n])
+			m.Payload = p
 		}
 		s.record(func(v *TransportStats) { v.Decoded++ })
 		for _, out := range s.Router.HandleFrom(m, peer.String()) {

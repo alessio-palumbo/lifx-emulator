@@ -17,6 +17,7 @@ func main() {
 	path := flag.String("config", config.Path(), "device configuration JSON")
 	address := flag.String("listen", "", "override UDP listen address")
 	traffic := flag.Bool("traffic", false, "log socket counters when traffic changes")
+	responsesPath := flag.String("responses", config.ResponsePath(), "optional local response configuration JSON")
 	flag.Parse()
 	f, err := config.Load(*path)
 	if err != nil {
@@ -30,6 +31,13 @@ func main() {
 		log.Fatal(err)
 	}
 	r := lan.New(vs, nil)
+	responses, err := config.LoadResponses(*responsesPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := r.SetResponses(responses); err != nil {
+		log.Fatal(err)
+	}
 	s, err := lan.Listen(f.Listen, r)
 	if err != nil {
 		log.Fatal(err)

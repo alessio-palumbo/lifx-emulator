@@ -86,6 +86,36 @@ Supported visual Sets:
 
 Every accepted Set produces an immediate internal invalidation. The response policy returns newly applied or currently evaluated State messages consistently and ignores `ack_required`/`res_required`. Gets evaluate animations at request time. Unsupported messages are ignored. This deliberately avoids firmware timing and acknowledgment quirks.
 
+## Optional local response rules
+
+For experimental compatibility, load user-supplied replies from `responses.local.json` beside the device configuration. `LIFX_EMULATOR_RESPONSES` overrides that path for desktop and headless; the headless `-responses` flag also selects a file. Restart after editing. The default missing file disables this feature; a missing explicit override or invalid file reports an error.
+
+Local definitions are not bundled into the binary. Keep them outside the repository; the default filename and packet captures are also ignored by Git. This keeps fixtures out of the published source, but does not conceal replies from LAN observers.
+
+The following uses **synthetic message IDs** and arbitrary bytes, not an additional protocol definition:
+
+```json
+{
+  "responses": [
+    {
+      "request_type": 60000,
+      "request_size": 0,
+      "response_type": 60001,
+      "request_name": "LocalQuery",
+      "response_name": "LocalState",
+      "parts": [
+        { "query": "DeviceGetLabel" },
+        { "hex": "01020304" }
+      ]
+    }
+  ]
+}
+```
+
+Each part either marshals a current public State reply from a generated, payload-free Get query, or appends literal local hex bytes. Query parts must produce exactly one State for the addressed product. Parts are concatenated in order. No private packet structures, message IDs, or captured account data are built in. Rules cannot override public request types. Invalid request lengths, unsupported query parts, and replies larger than 4060 payload bytes produce no reply and appear in traffic diagnostics. Unknown packet types without rules likewise appear as unsupported RX entries rather than malformed packets.
+
+The normal protocol library constructs every response header using the virtual target and the request's source/sequence. Literal parts replay **payload bytes only**, never a captured packet header. Rules answer queries; they do not modify identity, ownership, or light state, and do not implement account association.
+
 ## Structure and timing
 
 ```text
