@@ -1,5 +1,4 @@
-// Keep native selects as the value/event source for existing form logic, while
-// rendering a consistent control and popup instead of platform-native menus.
+// Native selects remain the value/event source for the form logic.
 const controls = new WeakMap();
 let openControl;
 let nextId = 0;
@@ -14,7 +13,9 @@ export function enhanceSelects(root) {
 export class SelectControl {
   constructor(select) {
     this.select = select;
+    this.searchable = select.id === 'product';
     this.active = select.selectedIndex;
+    this.search = '';
     this.wrapper = document.createElement('div');
     this.wrapper.className = 'select-control';
     this.button = document.createElement('button');
@@ -27,17 +28,46 @@ export class SelectControl {
     this.button.setAttribute('aria-label', label?.firstChild?.textContent.trim() || select.id);
     this.menu = document.createElement('div');
     this.menu.className = 'select-menu';
-    this.menu.id = `select-menu-${++nextId}`;
-    this.menu.setAttribute('role', 'listbox');
-    this.menu.setAttribute('aria-label', this.button.getAttribute('aria-label'));
     this.menu.hidden = true;
-    this.button.setAttribute('aria-controls', this.menu.id);
+    this.searchInput = document.createElement('input');
+    this.searchInput.type = 'search';
+    this.searchInput.className = 'select-search';
+    this.searchInput.placeholder = select.id === 'product' ? 'Search name or product ID…' : 'Search options…';
+    this.searchInput.setAttribute('aria-label', this.searchInput.placeholder.replace('…', ''));
+    this.searchInput.autocomplete = 'off';
+    this.searchInput.hidden = true;
+    this.list = document.createElement('div');
+    this.list.className = 'select-list';
+    this.list.id = `select-list-${++nextId}`;
+    this.list.setAttribute('role', 'listbox');
+    this.list.setAttribute('aria-label', this.button.getAttribute('aria-label'));
+    this.searchInput.setAttribute('role', 'combobox');
+    this.searchInput.setAttribute('aria-autocomplete', 'list');
+    this.searchInput.setAttribute('aria-controls', this.list.id);
+    this.searchInput.setAttribute('aria-expanded', 'false');
+    this.result = document.createElement('div');
+    this.result.className = 'select-results';
+    this.result.setAttribute('role', 'status');
+    this.button.setAttribute('aria-controls', this.list.id);
+    this.menu.append(this.result, this.list);
+    this.result.hidden = !this.searchable;
     select.before(this.wrapper);
-    this.wrapper.append(select, this.button, this.menu);
+    this.wrapper.append(select, this.button);
+    if (this.searchable) this.wrapper.append(this.searchInput);
+    this.wrapper.append(this.menu);
     select.hidden = true;
-    this.button.title = 'Type a name or product ID to jump to a match';
-    this.button.onclick = () => this.menu.hidden ? this.open() : this.close();
+    this.button.onclick = () => this.menu.hidden ? this.open(true) : this.close();
     this.button.onkeydown = event => this.keydown(event);
+    this.searchInput.oninput = () => this.filter(this.searchInput.value);
+    this.searchInput.onkeydown = event => {
+      if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(event.key)) this.keydown(event);
+    };
+    // Contain trackpad/wheel momentum even at the first or last option.
+    this.menu.addEventListener('wheel', event => {
+      event.preventDefault();
+      const unit = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? this.list.clientHeight : 1;
+      this.list.scrollTop += event.deltaY * unit;
+    }, { passive: false });
     select.addEventListener('change', () => this.sync());
     this.observer = new MutationObserver(() => this.rebuild());
     this.observer.observe(select, { childList: true, subtree: true, attributes: true });
@@ -45,97 +75,123 @@ export class SelectControl {
   }
 
   rebuild() {
-    this.menu.replaceChildren();
-    for (const [index, option] of [...this.select.options].entries()) {
+    this.visible = matchingIndices([...this.select.options], this.search);
+    this.list.replaceChildren();
+    for (const index of this.visible) {
+      const option = this.select.options[index];
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'select-option';
-      item.id = `${this.menu.id}-option-${index}`;
+      item.id = `${this.list.id}-option-${index}`;
+      item.dataset.index = index;
       item.tabIndex = -1;
       item.setAttribute('role', 'option');
       item.textContent = option.textContent;
       item.title = option.textContent;
-      item.disabled = option.disabled;
-      // Keep focus on the combobox so keyboard navigation and Escape work.
       item.onmousedown = event => event.preventDefault();
       item.onclick = () => {
         this.select.selectedIndex = index;
         this.select.dispatchEvent(new Event('change', { bubbles: true }));
         this.close();
-        this.button.focus();
+        this.button.focus({ preventScroll: true });
       };
-      this.menu.append(item);
+      this.list.append(item);
     }
+    this.result.textContent = this.search ? `${this.visible.length} ${this.visible.length === 1 ? 'match' : 'matches'}` : 'Type to filter, ↑ ↓ to browse, Enter to select';
     this.sync();
   }
 
+  filter(query) {
+    this.search = query;
+    this.searchInput.value = query;
+    this.rebuild();
+    this.list.scrollTop = 0;
+    this.highlight(this.visible[0] ?? -1);
+  }
+
   sync() {
-    const text = this.select.selectedOptions[0]?.textContent || 'Select…';
+    const text = this.select.options[this.select.selectedIndex]?.textContent || 'Select…';
     if (this.button.textContent !== text) this.button.textContent = text;
-    this.button.title = `${text} · Type a name or product ID to find a match`;
+    this.button.title = this.searchable ? `${text} · Search by name or product ID` : text;
     this.button.disabled = this.select.disabled || !this.select.options.length;
-    for (const [index, item] of [...this.menu.children].entries()) {
-      item.setAttribute('aria-selected', String(index === this.select.selectedIndex));
+    for (const item of this.list.children) {
+      item.setAttribute('aria-selected', String(Number(item.dataset.index) === this.select.selectedIndex));
     }
   }
 
   open() {
     openControl?.close();
     openControl = this;
-    this.button.focus({ preventScroll: true });
     this.menu.hidden = false;
+    this.searchInput.hidden = !this.searchable;
+    this.wrapper.classList.toggle('searching', this.searchable);
     this.button.setAttribute('aria-expanded', 'true');
-    // Flip above the control if the popup would otherwise leave the viewport.
-    this.menu.classList.toggle('above', this.button.getBoundingClientRect().bottom + Math.min(this.menu.scrollHeight, 280) > window.innerHeight - 12);
-    this.highlight(Math.max(0, this.select.selectedIndex));
+    this.searchInput.setAttribute('aria-expanded', 'true');
+    const rect = this.button.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    const flip = below < Math.min(this.menu.scrollHeight, 330) && above > below;
+    this.menu.classList.toggle('above', flip);
+    this.list.style.maxHeight = `${Math.max(60, Math.min(240, (flip ? above : below) - this.result.offsetHeight - 16))}px`;
+    this.highlight(this.visible.includes(this.select.selectedIndex) ? this.select.selectedIndex : this.visible[0] ?? -1);
+    (this.searchable ? this.searchInput : this.button).focus({ preventScroll: true });
   }
 
   close() {
     this.menu.hidden = true;
+    this.searchInput.hidden = true;
+    this.wrapper.classList.remove('searching');
     this.button.setAttribute('aria-expanded', 'false');
     this.button.removeAttribute('aria-activedescendant');
+    this.searchInput.setAttribute('aria-expanded', 'false');
+    this.searchInput.removeAttribute('aria-activedescendant');
     this.search = '';
-    this.lastSearch = 0;
+    this.searchInput.value = '';
+    this.rebuild();
     if (openControl === this) openControl = undefined;
   }
 
   highlight(index) {
     this.active = index;
-    for (const [i, item] of [...this.menu.children].entries()) item.classList.toggle('active', i === index);
-    const item = this.menu.children[index];
+    for (const item of this.list.children) item.classList.toggle('active', Number(item.dataset.index) === index);
+    const item = [...this.list.children].find(item => Number(item.dataset.index) === index);
     if (item) {
       this.button.setAttribute('aria-activedescendant', item.id);
-      item.scrollIntoView({ block: 'nearest' });
+      this.searchInput.setAttribute('aria-activedescendant', item.id);
+      // Scroll only the option list, never its enclosing page.
+      if (item.offsetTop < this.list.scrollTop) this.list.scrollTop = item.offsetTop;
+      else if (item.offsetTop + item.offsetHeight > this.list.scrollTop + this.list.clientHeight) this.list.scrollTop = item.offsetTop + item.offsetHeight - this.list.clientHeight;
+    } else {
+      this.button.removeAttribute('aria-activedescendant');
+      this.searchInput.removeAttribute('aria-activedescendant');
     }
   }
 
   keydown(event) {
-    const options = [...this.select.options];
     if (event.key === 'Escape' || event.key === 'Tab') {
+      if (event.key === 'Tab' && this.searchable) this.button.focus({ preventScroll: true });
       this.close();
-      if (event.key === 'Escape') event.preventDefault();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        this.button.focus({ preventScroll: true });
+      }
       return;
     }
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault();
       if (this.menu.hidden) this.open();
-      const direction = event.key === 'ArrowUp' || event.key === 'End' ? -1 : 1;
-      let index = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : this.active + direction;
-      while (index >= 0 && index < options.length && options[index].disabled) index += direction;
-      if (index >= 0 && index < options.length) this.highlight(index);
+      const position = this.visible.indexOf(this.active);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? this.visible.length - 1 : position + (event.key === 'ArrowUp' ? -1 : 1);
+      if (next >= 0 && next < this.visible.length) this.highlight(this.visible[next]);
     } else if (event.key === 'Enter' || (event.key === ' ' && !this.search)) {
       event.preventDefault();
-      if (this.menu.hidden) this.open();
-      else this.menu.children[this.active]?.click();
-    } else if ((event.key.length === 1 || event.key === 'Backspace') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (this.menu.hidden) this.open(true);
+      else [...this.list.children].find(item => Number(item.dataset.index) === this.active)?.click();
+    } else if (this.searchable && (event.key.length === 1 || event.key === 'Backspace') && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
       if (this.menu.hidden) this.open();
-      const now = Date.now();
-      const previous = now - (this.lastSearch || 0) < 1200 ? this.search || '' : '';
-      this.search = event.key === 'Backspace' ? previous.slice(0, -1) : previous + event.key;
-      this.lastSearch = now;
-      const index = findMatch(options, this.search);
-      if (index >= 0) this.highlight(index);
+      this.filter(event.key === 'Backspace' ? this.search.slice(0, -1) : this.search + event.key);
+      this.searchInput.focus({ preventScroll: true });
     }
   }
 }
@@ -147,16 +203,17 @@ if (typeof document !== 'undefined') document.addEventListener('focusin', event 
   if (openControl && !openControl.wrapper.contains(event.target)) openControl.close();
 });
 
-// Prefer exact IDs before prefix matches; registry names can contain a brand
-// prefix, so names match anywhere rather than only at the first character.
-export function findMatch(options, query) {
+export function matchingIndices(options, query) {
   query = query.trim().toLowerCase();
-  if (!query) return -1;
-  const enabled = option => !option.disabled;
+  const indices = options.flatMap((option, index) => !option.disabled ? [index] : []);
+  if (!query) return indices;
   if (/^\d+$/.test(query)) {
-    const exact = options.findIndex(option => enabled(option) && option.value === query);
-    if (exact >= 0) return exact;
-    return options.findIndex(option => enabled(option) && option.value.startsWith(query));
+    return indices.filter(index => options[index].value.startsWith(query)).sort((a, b) => Number(options[b].value === query) - Number(options[a].value === query));
   }
-  return options.findIndex(option => enabled(option) && option.textContent.toLowerCase().includes(query));
+  const terms = query.split(/\s+/);
+  return indices.filter(index => terms.every(term => options[index].textContent.toLowerCase().includes(term)));
+}
+
+export function findMatch(options, query) {
+  return query.trim() ? matchingIndices(options, query)[0] ?? -1 : -1;
 }
