@@ -54,7 +54,8 @@ let membershipDirty=false;
 el('membership').addEventListener('input',()=>{membershipDirty=true;});
 el('membership').onsubmit=event=>{event.preventDefault();action(async()=>{await api().UpdateMembership(el('location-label').value,el('location-id').value,el('group-label').value,el('group-id').value);membershipDirty=false;setNetworkSettings(false,true);});};
 function renderMembership(){
- el('membership-summary').textContent=[view.Location?.Label&&`Location: ${view.Location.Label}`,view.Group?.Label&&`Group: ${view.Group.Label}`].filter(Boolean).join(' · ');
+ const summary=[['Location',view.Location?.Label],['Group',view.Group?.Label]].filter(([,name])=>name).map(([label,name])=>`${label}: <span class="membership-name">${escape(name)}</span>`).join(' · ');
+ if(el('membership-summary').innerHTML!==summary)el('membership-summary').innerHTML=summary;
  if(membershipDirty)return;
  for(const [prefix,entry] of [['location',view.Location],['group',view.Group]]){if(entry){el(prefix+'-label').value=entry.Label;el(prefix+'-id').value=entry.ID;}}
 }

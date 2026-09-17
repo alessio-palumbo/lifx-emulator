@@ -73,3 +73,5 @@ button:disabled{cursor:default;opacity:.55}
 
 /* Spacing between listening-bar controls; icon buttons keep 32px hit areas. */
 .network{gap:6px}
+
+.network-identity .membership-name{color:#e5eaf1}
