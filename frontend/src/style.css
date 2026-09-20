@@ -75,3 +75,25 @@ button:disabled{cursor:default;opacity:.55}
 .network{gap:6px}
 
 .network-identity .membership-name{color:#e5eaf1}
+
+/* Presentation mode uses the window as a black virtual-light canvas. */
+.section-actions{display:flex;align-items:center;gap:10px}.section-actions span{color:#8894a5;font-size:12px}
+#presentation{position:fixed;z-index:100;inset:0;background:#000;color:#e9ecf3;display:block}
+#presentation[hidden]{display:none}
+.presenting{overflow:hidden}
+.presentation-toolbar{position:absolute;z-index:2;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;min-height:50px;padding:8px 12px;background:#0b0c0fee;border-bottom:1px solid #252a33;opacity:.28;transition:opacity .15s}
+.presentation-toolbar:hover,.presentation-toolbar:focus-within{opacity:1}
+.presentation-toolbar strong{font-size:13px}.presentation-help{flex:1;color:#778395;font-size:11px;text-align:center}
+#presentation-stage{position:absolute;inset:0;overflow:hidden;background:#000;touch-action:none}
+.presented-device{position:absolute;min-width:80px;min-height:60px;overflow:hidden}
+.presented-device canvas{position:absolute;inset:0;width:100%;height:100%}
+.presented-label{position:absolute;top:7px;left:8px;max-width:calc(100% - 16px);padding:3px 6px;border-radius:4px;color:#b6c0cf;background:#090b0dbb;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0;transition:opacity .15s}
+.presentation-toolbar:hover~#presentation-stage .presented-label,.arranging .presented-label{opacity:1}
+.arranging .presented-device{outline:1px dashed #8092aa;cursor:move}
+.resize-handle{display:none;position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 45%,#a9b7c8 46% 54%,transparent 55%)}
+.arranging .resize-handle{display:block}
+@media(max-width:650px){.presentation-help{display:none}.section-actions{gap:6px}}
+
+/* Canvas bitmap dimensions must not establish a wider grid after leaving full screen. */
+main>section,#devices,article{min-width:0}
+.preview canvas{display:block;max-width:100%}

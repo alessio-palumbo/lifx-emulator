@@ -54,6 +54,8 @@ All lights in one emulator configuration share a location and group. The listeni
 
 The advanced ID fields allow intentional sharing across emulator instances: use the same location UUID to share a location, or the same group UUID to share a group. Matching labels alone do not merge IDs. Headless mode uses the same top-level `Location` and `Group` objects in `devices.json`, each with `ID` (UUID string), `Label` (up to 32 UTF-8 bytes), and `UpdatedAt` (nanoseconds since epoch). Restart after manual edits and update the timestamp when changing metadata.
 
+Use **Preview** on a light to display it across the window, or **Present canvas** to place several live devices on a black stage. In canvas mode, choose **Arrange** to drag devices or resize them from the lower-right corner. Positions and sizes are saved locally and scale with the window. **Full screen** uses the native application window when available; Escape returns to the main interface.
+
 The registry describes capabilities, not physical matrix dimensions or strip lengths. Choose physical zone count, **send width**, height, and chain length when adding a light. Tile defaults are 8×8 with five chain members; a Candle Color can use 5×6, a Ceiling 8×8, and a Ceiling 13×26 a physical 8×16 layout. The library derives display rows, offsets, hidden cells, and capsule reshaping. JSON supports individual chain `Orientations` (0 upright, 1 upside down, 2 face up, 3 face down, 4 left, 5 right); the creation form applies one orientation to all chain members. Chain members are displayed side by side.
 
 Example additional strip definition:

@@ -20,7 +20,7 @@ async function app(platform='darwin') {
   const timers = new Map();
   let nextTimer = 0;
   vm.runInNewContext(source, {
-    window,document,appIcon:'/test-appicon.png',cssColor:()=> '#fff',enhanceSelects:()=>{},
+    window,document,appIcon:'/test-appicon.png',cssColor:()=> '#fff',enhanceSelects:()=>{},createPresentation:()=>({openDevice:()=>{},openAll:()=>{},render:()=>{}}),
     setTimeout:(fn,delay)=>{const id=++nextTimer;timers.set(id,{fn,delay});return id;},
     clearTimeout:id=>timers.delete(id),
   });
