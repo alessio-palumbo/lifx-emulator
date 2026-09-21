@@ -261,3 +261,15 @@ test('hovering a rendered zone shows its HSBK tooltip',async()=>{
   assert.equal(tooltip.hidden,true);
  }finally{await a.close();}
 });
+
+test('device badge reflects power without animation flicker',async()=>{
+ const a=await app();
+ try{
+  const badge=a.document.querySelector('article .state');
+  assert.equal(badge.textContent,'On');
+  a.state.Devices[0].Active=true;a.frame({...a.state});assert.equal(badge.textContent,'On');
+  a.state.Devices[0].Active=false;a.frame({...a.state});assert.equal(badge.textContent,'On');
+  a.state.Devices[0].Power=0;a.frame({...a.state});assert.equal(badge.textContent,'Off');
+  a.state.Devices[0].Enabled=false;a.frame({...a.state});assert.equal(badge.textContent,'Disabled');
+ }finally{await a.close();}
+});
