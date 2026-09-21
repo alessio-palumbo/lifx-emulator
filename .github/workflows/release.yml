@@ -57,6 +57,11 @@ jobs:
         env:
           RELEASE_REF: ${{ github.ref_name }}
         run: |
+          if [[ "$RELEASE_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$ ]]; then
+            echo "LIFX_EMULATOR_VERSION=${RELEASE_REF#v}" >> "$GITHUB_ENV"
+          else
+            echo "LIFX_EMULATOR_VERSION=0.1.0" >> "$GITHUB_ENV"
+          fi
           node --input-type=module <<'JS'
           import fs from 'node:fs';
           const config = JSON.parse(fs.readFileSync('wails.json', 'utf8'));
@@ -71,7 +76,7 @@ jobs:
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: ./scripts/import-macos-certificate.sh
       - name: Build Wails app with bundled defaults
-        run: wails build -clean -platform '${{ matrix.platform }}'
+        run: wails build -clean -platform '${{ matrix.platform }}' -ldflags "-X main.version=${LIFX_EMULATOR_VERSION}"
       - name: Build headless runner with bundled defaults
         run: |
           if [[ "$RUNNER_OS" == "macOS" ]]; then
