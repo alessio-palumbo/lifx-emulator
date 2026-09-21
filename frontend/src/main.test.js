@@ -14,7 +14,7 @@ async function app(platform='darwin') {
   const devices = ['First light','Second light'].map((Label,index)=>({Serial:`02000000000${index+1}`,Label,Model:'Color',Enabled:true,Product:27,Kind:'single_zone',Power:65535,Colors:[{}],Surface:{}}));
   const Recent = Array.from({length:80},(_,index)=>({At:new Date(index*1000).toISOString(),Direction:'RX',Target:devices[0].Serial,Type:101,TypeName:'LightGet',Replies:1,Sequence:index}));
   const state = {Platform:platform,Location:{ID:'11111111-1111-4111-8111-111111111111',Label:'Test lab'},Group:{ID:'22222222-2222-4222-8222-222222222222',Label:'Alice'},Devices:devices,Recent,Interfaces:['0.0.0.0','192.168.1.10'],Listening:'0.0.0.0:56700',Transport:{Received:800,Decoded:799,Replies:700,Invalid:1}};
-  window.go = {app:{App:{Products:async()=>[{ID:27,Name:'Color'}],Snapshot:async()=>state,ListenOn:async ip=>{state.Listening=ip+':56700';},RequestLANAccess:async()=>{},UpdateMembership:async(locationLabel,locationID,groupLabel,groupID)=>{state.Location={Label:locationLabel,ID:locationID};state.Group={Label:groupLabel,ID:groupID};},Update:async()=>{}}}};
+  window.go = {app:{App:{Products:async()=>[{ID:27,Name:'Color'},{ID:55,Name:'Tile',Matrix:true,Chain:true},{ID:219,Name:'Luna',Matrix:true,Chain:false}],Snapshot:async()=>state,ListenOn:async ip=>{state.Listening=ip+':56700';},RequestLANAccess:async()=>{},UpdateMembership:async(locationLabel,locationID,groupLabel,groupID)=>{state.Location={Label:locationLabel,ID:locationID};state.Group={Label:groupLabel,ID:groupID};},Update:async()=>{}}}};
   let frame;
   window.runtime = {EventsOn:(_,callback)=>{frame=callback;}};
   const timers = new Map();
@@ -200,5 +200,64 @@ test('LAN helper errors expire without clearing a newer operation error',async()
   const select=a.document.querySelector('#interface');
   select.value='192.168.1.10';select.dispatchEvent(new a.window.Event('change'));await tick();
   a.runTimers(6000);assert.match(a.document.querySelector('#error').textContent,/Cannot bind interface/);
+ }finally{await a.close();}
+});
+test('device card actions use text and labeled icon groups',async()=>{
+ const a=await app();
+ try{
+  const card=a.document.querySelector('article');
+  const groups=card.querySelectorAll('.card-actions>.action-group');
+  assert.equal(groups.length,1);
+  const buttons=[...card.querySelectorAll('.card-actions button')];
+  assert.deepEqual(buttons.map(button=>button.getAttribute('aria-label')||button.textContent),['Preview','Edit identity','Disable','Remove']);
+  assert.deepEqual(buttons.slice(2).map(button=>button.title),['Disable','Remove']);
+  assert.equal(buttons[0].textContent,'Preview');assert.equal(buttons[1].textContent,'Edit identity');
+  assert.equal(buttons.slice(2).every(button=>button.querySelector('svg')&&button.textContent.trim()===''),true);
+  a.state.Devices[0].Enabled=false;a.frame({...a.state});
+  const enable=card.querySelector('.enable');
+  assert.equal(enable.getAttribute('aria-label'),'Enable');
+  assert.equal(enable.title,'Enable');
+  assert.equal(enable.classList.contains('will-enable'),true);
+ }finally{await a.close();}
+});
+
+test('chain length is shown only for chain-capable matrices',async()=>{
+ const a=await app();
+ try{
+  const product=a.document.querySelector('#product');
+  product.value='219';product.dispatchEvent(new a.window.Event('change'));
+  assert.ok(a.document.querySelector('#width'));assert.equal(a.document.querySelector('#chains'),null);
+  product.value='55';product.dispatchEvent(new a.window.Event('change'));
+  assert.equal(a.document.querySelector('#chains').value,'5');
+  assert.equal(a.document.querySelector('#chains').readOnly,false);
+ }finally{await a.close();}
+});
+
+test('virtual room uses a labeled screen icon',async()=>{
+ const a=await app();
+ try{
+  const button=a.document.querySelector('#presentation-all');
+  assert.equal(button.textContent.trim(),'Virtual room');
+  assert.equal(button.title,'Open virtual room');
+  assert.ok(button.querySelector('svg'));
+  assert.equal(button.querySelector('span').textContent,'Virtual room');
+ }finally{await a.close();}
+});
+test('hovering a rendered zone shows its HSBK tooltip',async()=>{
+ const a=await app();
+ try{
+  a.state.Devices[0].Colors=[{Hue:120,Saturation:50,Brightness:25,Kelvin:3500}];a.frame({...a.state});
+  const canvas=a.document.querySelector('article canvas');
+  canvas.getBoundingClientRect=()=>({left:0,top:0,width:200,height:100});
+  canvas.dispatchEvent(new a.window.PointerEvent('pointermove',{bubbles:true,clientX:100,clientY:44}));
+  const tooltip=a.document.querySelector('#zone-tooltip');
+  assert.equal(a.document.querySelector('.info'),null);
+  assert.match(a.document.querySelector('.state').title,/Power level 65535 \(100%\)/);
+  assert.equal(tooltip.hidden,true);
+  a.runTimers(350);
+  assert.equal(tooltip.hidden,false);
+  assert.match(tooltip.textContent,/Color · H 120\.0° · S 50\.0% · B 25\.0% · K 3500/);
+  canvas.dispatchEvent(new a.window.PointerEvent('pointerleave',{bubbles:true}));
+  assert.equal(tooltip.hidden,true);
  }finally{await a.close();}
 });

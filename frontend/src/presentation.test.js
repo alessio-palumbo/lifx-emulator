@@ -33,10 +33,12 @@ test('presents every device, supports focused preview, and closes with Escape',a
 test('arrangement drag persists normalized layout and fullscreen uses runtime',async()=>{
  const a=setup();try{
   a.presentation.openAll();const overlay=a.presentation.element,stage=overlay.querySelector('#presentation-stage'),node=overlay.querySelector('[data-serial="one"]');
+  for(const [id,label] of [['#presentation-arrange','Arrange devices'],['#presentation-fullscreen','Enter full screen'],['#presentation-close','Close presentation']]){const button=overlay.querySelector(id);assert.equal(button.getAttribute('aria-label'),label);assert.equal(button.title,label);assert.ok(button.querySelector('svg'));}
   stage.getBoundingClientRect=()=>({left:0,top:0,width:1000,height:500});
   node.getBoundingClientRect=()=>({left:40,top:30,width:280,height:120});
   overlay.querySelector('#presentation-arrange').click();
   assert.equal(overlay.classList.contains('arranging'),true);
+  assert.equal(overlay.querySelector('#presentation-arrange').getAttribute('aria-label'),'Finish arranging');
   node.dispatchEvent(new a.window.PointerEvent('pointerdown',{bubbles:true,button:0,clientX:50,clientY:40,pointerId:1}));
   stage.dispatchEvent(new a.window.PointerEvent('pointermove',{bubbles:true,clientX:150,clientY:90,pointerId:1}));
   stage.dispatchEvent(new a.window.PointerEvent('pointerup',{bubbles:true,pointerId:1}));
@@ -50,6 +52,7 @@ test('arrangement drag persists normalized layout and fullscreen uses runtime',a
   assert.equal(Math.round(saved.one.width),40);assert.equal(Math.round(saved.one.height),40);
   overlay.querySelector('#presentation-fullscreen').click();await Promise.resolve();
   assert.equal(a.counts().fullscreen,1);
+  assert.equal(overlay.querySelector('#presentation-fullscreen').getAttribute('aria-label'),'Exit full screen');
   overlay.querySelector('#presentation-close').click();await Promise.resolve();
   assert.equal(a.counts().unfullscreen,1);
  }finally{await a.close();delete globalThis.window;delete globalThis.document;}

@@ -97,3 +97,21 @@ button:disabled{cursor:default;opacity:.55}
 /* Canvas bitmap dimensions must not establish a wider grid after leaving full screen. */
 main>section,#devices,article{min-width:0}
 .preview canvas{display:block;max-width:100%}
+
+/* Compact card actions: view/edit and state/destructive controls remain distinct. */
+.card-actions{align-items:center;gap:8px}
+.action-group{display:flex;align-items:center;gap:6px}
+.device-actions{margin-left:auto}
+.card-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:6px;color:#b7c0ce}
+.card-icon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.card-icon.remove{margin-left:0;color:#daabad}
+.card-icon.enable.will-enable{color:#b4e8c5}
+.card-icon:focus-visible{outline:2px solid #b9e9c9;outline-offset:2px}
+
+.presentation-launch{display:inline-flex;align-items:center;gap:7px}
+.presentation-launch svg,.presentation-icon svg{width:17px;height:17px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.presentation-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:6px}
+.presentation-icon[aria-pressed=true]{color:#b9e9c9;border-color:#678775;background:#2a3730}
+
+#zone-tooltip{position:fixed;z-index:220;max-width:min(430px,calc(100vw - 16px));padding:6px 8px;border:1px solid #465264;border-radius:5px;background:#11151bed;color:#dbe2ec;font:10px ui-monospace,monospace;white-space:nowrap;pointer-events:none;box-shadow:0 5px 16px #0009}
+#zone-tooltip[hidden]{display:none}
