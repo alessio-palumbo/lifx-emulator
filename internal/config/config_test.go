@@ -43,6 +43,17 @@ func TestTopologyValidation(t *testing.T) {
 	}
 }
 
+func TestHybridLightAcceptedAndSwitchRejected(t *testing.T) {
+	luna := Definition{Serial: "020000000001", Label: "Luna", Product: 219, Enabled: true, Width: 8, Height: 8, Chains: 1}
+	if _, err := luna.Virtual(); err != nil {
+		t.Fatalf("hybrid matrix light rejected: %v", err)
+	}
+	switchProduct := Definition{Serial: "020000000002", Label: "Switch", Product: 70, Enabled: true}
+	if _, err := switchProduct.Virtual(); err == nil {
+		t.Fatal("relay product accepted")
+	}
+}
+
 func TestSerialNormalization(t *testing.T) {
 	f, err := Defaults()
 	if err != nil {

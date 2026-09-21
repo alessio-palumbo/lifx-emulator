@@ -78,7 +78,7 @@ func (d Definition) Virtual() (*emulator.VirtualDevice, error) {
 		return nil, fmt.Errorf("invalid serial %q", d.Serial)
 	}
 	p, ok := registry.ProductsByPID[int(d.Product)]
-	if !ok || p.Features.Relays || p.Features.Buttons {
+	if !ok {
 		return nil, fmt.Errorf("unsupported light product %d", d.Product)
 	}
 	if len(d.Label) > 32 {
@@ -86,6 +86,9 @@ func (d Definition) Virtual() (*emulator.VirtualDevice, error) {
 	}
 	v := device.Device{Serial: serial, Label: d.Label}
 	v.SetProductInfo(d.Product)
+	if v.Type != device.DeviceTypeLight && v.Type != device.DeviceTypeHybrid {
+		return nil, fmt.Errorf("unsupported light product %d", d.Product)
+	}
 	switch v.LightType {
 	case device.LightTypeMultiZone:
 		if d.Zones < 1 || d.Zones > 255 {

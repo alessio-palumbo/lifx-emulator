@@ -21,3 +21,21 @@ func TestProductsSortDuplicateNamesByAscendingPID(t *testing.T) {
 		t.Fatal("registry contained no duplicate names to exercise ordering")
 	}
 }
+
+func TestProductsUseDeviceTypeClassification(t *testing.T) {
+	products := New().Products()
+	listed := map[int]bool{}
+	for _, product := range products {
+		listed[product.ID] = true
+	}
+	for _, pid := range []int{207, 208, 219, 220, 267, 268} {
+		if !listed[pid] {
+			t.Errorf("DeviceTypeHybrid PID %d is missing", pid)
+		}
+	}
+	for _, pid := range []int{70, 71, 84, 89, 115, 116, 226} {
+		if listed[pid] {
+			t.Errorf("DeviceTypeSwitch PID %d should be excluded", pid)
+		}
+	}
+}

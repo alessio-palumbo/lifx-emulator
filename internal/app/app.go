@@ -182,7 +182,9 @@ func (a *App) Snapshot() View {
 func (a *App) Products() []Product {
 	out := []Product{}
 	for id, p := range registry.ProductsByPID {
-		if !p.Features.Relays && !p.Features.Buttons {
+		classified := device.Device{}
+		classified.SetProductInfo(uint32(id))
+		if classified.Type == device.DeviceTypeLight || classified.Type == device.DeviceTypeHybrid {
 			out = append(out, Product{id, p.Name, p.Features.Multizone, p.Features.Matrix, p.Features.Chain})
 		}
 	}
